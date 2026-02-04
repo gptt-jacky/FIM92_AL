@@ -36,6 +36,7 @@ struct TrackerInstance {
     Antilatency::Alt::Tracking::ITrackingCotask cotask;
     int id;
     std::string type;  // Type read from AntilatencyService (e.g. "Stinger", "Binoculars")
+    std::string number; // Number read from AntilatencyService
 };
 
 // ============================================================
@@ -119,6 +120,17 @@ static std::vector<SceneConfig> parseSceneConfigs(const std::string& filename) {
 static std::string getNodeType(Antilatency::DeviceNetwork::INetwork network, Antilatency::DeviceNetwork::NodeHandle node) {
     try {
         return network.nodeGetStringProperty(node, "Type");
+    } catch (...) {
+        return "";
+    }
+}
+
+// ============================================================
+// Read Number from a device node (returns "" if not set)
+// ============================================================
+static std::string getNodeNumber(Antilatency::DeviceNetwork::INetwork network, Antilatency::DeviceNetwork::NodeHandle node) {
+    try {
+        return network.nodeGetStringProperty(node, "Number");
     } catch (...) {
         return "";
     }
@@ -350,7 +362,7 @@ int main(int argc, char* argv[]) {
     Antilatency::HardwareExtensionInterface::ICotask hwCotask = nullptr;
     std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
     Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7 = nullptr;
-    bool io7State = false;  // false=High(off), true=Low(on)
+    bool io7State = false;  // false=Low(off), true=High(on)
     bool hwRunning = false;
     std::string hwType;  // Type of the connected HW extension module
 
@@ -393,9 +405,9 @@ int main(int argc, char* argv[]) {
                 if (outputPinIO7 != nullptr) {
                     io7State = !io7State;
                     outputPinIO7.setState(io7State
-                        ? Antilatency::HardwareExtensionInterface::Interop::PinState::Low
-                        : Antilatency::HardwareExtensionInterface::Interop::PinState::High);
-                    std::cout << "\n>> IO7 Output: " << (io7State ? "ON (Low)" : "OFF (High)") << std::endl;
+                        ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                        : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                    std::cout << "\n>> IO7 Output: " << (io7State ? "ON (High)" : "OFF (Low)") << std::endl;
                 } else {
                     std::cout << "\n>> IO7: Extension Module not connected" << std::endl;
                 }
@@ -448,12 +460,13 @@ int main(int argc, char* argv[]) {
                     ti.cotask = cotask;
                     ti.id = nextTrackerId++;
                     ti.type = getNodeType(network, node);
+                    ti.number = getNodeNumber(network, node);
                     trackers.push_back(ti);
-                    if (!ti.type.empty()) {
-                        std::cout << "\nAlt Tracker #" << ti.id << " [" << ti.type << "] connected!" << std::endl;
-                    } else {
-                        std::cout << "\nAlt Tracker #" << ti.id << " connected!" << std::endl;
-                    }
+                    
+                    std::cout << "\nAlt Tracker #" << ti.id;
+                    if (!ti.number.empty()) std::cout << " Number:" << ti.number;
+                    if (!ti.type.empty()) std::cout << " [" << ti.type << "]";
+                    std::cout << " connected!" << std::endl;
                 }
             }
 
@@ -473,10 +486,10 @@ int main(int argc, char* argv[]) {
                         for (int i = 0; i < inputPinCount; i++) {
                             inputPins.push_back(hwCotask.createInputPin(inputPinDefs[i]));
                         }
-                        // Create IO7 as output pin (initial state: High = off)
+                        // Create IO7 as output pin (initial state: Low = off)
                         outputPinIO7 = hwCotask.createOutputPin(
                             Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
-                            Antilatency::HardwareExtensionInterface::Interop::PinState::High);
+                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         hwCotask.run();
                         hwRunning = true;
                         hwType = getNodeType(network, hwNode);
@@ -512,7 +525,11 @@ int main(int argc, char* argv[]) {
                 for (auto& t : trackers) {
                     if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
                     Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.03f);
-                    oss << "T" << t.id;
+                    if (!t.number.empty()) {
+                        oss << "#" << t.number;
+                    } else {
+                        oss << "T" << t.id;
+                    }
                     if (!t.type.empty()) oss << "[" << t.type << "]";
                     oss << ":"
                         << "P("
@@ -549,6 +566,63 @@ int main(int argc, char* argv[]) {
             std::string line = oss.str();
             if (line.size() < 160) line.resize(160, ' ');
             std::cout << "\r" << line << std::flush;
+
+            // ---- Write JSON for web viewer ----
+            {
+                std::ostringstream js;
+                js << std::fixed << std::setprecision(6);
+                js << "{";
+                js << "\"scene\":" << (currentSceneIndex + 1) << ",";
+                js << "\"sceneName\":\"" << scenes[currentSceneIndex].name << "\",";
+
+                // Trackers array
+                js << "\"trackers\":[";
+                bool firstTracker = true;
+                if (hasAnyTracker) {
+                    for (auto& t : trackers) {
+                        if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
+                        Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.03f);
+                        if (!firstTracker) js << ",";
+                        firstTracker = false;
+                        js << "{\"id\":" << t.id
+                           << ",\"type\":\"" << t.type << "\""
+                           << ",\"number\":\"" << t.number << "\""
+                           << ",\"px\":" << state.pose.position.x
+                           << ",\"py\":" << state.pose.position.y
+                           << ",\"pz\":" << state.pose.position.z
+                           << ",\"rx\":" << state.pose.rotation.x
+                           << ",\"ry\":" << state.pose.rotation.y
+                           << ",\"rz\":" << state.pose.rotation.z
+                           << ",\"rw\":" << state.pose.rotation.w
+                           << ",\"stability\":" << static_cast<int32_t>(state.stability.stage)
+                           << "}";
+                    }
+                }
+                js << "],";
+
+                // IO state
+                js << "\"io\":{\"connected\":" << (hasIO ? "true" : "false");
+                if (hasIO) {
+                    js << ",\"type\":\"" << hwType << "\"";
+                    js << ",\"inputs\":[";
+                    for (int i = 0; i < inputPinCount; i++) {
+                        if (i > 0) js << ",";
+                        auto pinState = inputPins[i].getState();
+                        js << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? 1 : 0);
+                    }
+                    js << "]";
+                    js << ",\"io7out\":" << (io7State ? "true" : "false");
+                }
+                js << "}";
+
+                js << "}";
+
+                std::ofstream jsonFile("tracking_data.json");
+                if (jsonFile.is_open()) {
+                    jsonFile << js.str();
+                    jsonFile.close();
+                }
+            }
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60FPS

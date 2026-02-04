@@ -17,6 +17,9 @@ out/
 /build/**/*.exe
 /build/**/*.dll
 
+# Runtime data
+tracking_data.json
+
 # OS files
 Thumbs.db
 .DS_Store
