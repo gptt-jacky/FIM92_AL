@@ -1,0 +1,10 @@
+^C:\USERS\TINAGPTT\JACKYGPTT\VSCODE\FIM92_C++\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++ -BC:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++/build --check-stamp-file C:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

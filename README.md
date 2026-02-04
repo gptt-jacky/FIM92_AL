@@ -24,6 +24,10 @@ Antilatency Alt Tracking + Hardware Extension Interface (HW IO) C++ 應用程式
 
 ---
 
+## 快速開始 (給使用者)
+
+如果您不想編譯程式碼，請直接至 [Releases](https://github.com/gptt-jacky/FIM92_AL/releases) 頁面下載最新版本的壓縮檔，解壓縮後執行 `RunWithWebViewer.bat` 即可。
+
 ## 專案概述
 
 本專案基於 Antilatency SDK 4.5.0，實現：
@@ -236,6 +240,8 @@ FIM92_C++/
 ---
 
 ## 編譯與執行
+
+> **注意**：從 GitHub 下載原始碼後，必須先執行以下編譯步驟產生執行檔，`RunWithWebViewer.bat` 才能正常運作。
 
 ### Windows
 

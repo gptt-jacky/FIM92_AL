@@ -1,0 +1,10 @@
+^C:\USERS\TINAGPTT\JACKYGPTT\VSCODE\FIM92_C++\BUILD\CMAKEFILES\1975F8641364C6C27F0C6C7C17E96353\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++ -BC:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/TinaGPTT/JackyGPTT/VScode/FIM92_C++/build/TrackingMinimalDemo.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

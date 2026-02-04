@@ -1,5 +1,5 @@
 # Build output
-build/
+# build/
 cmake-build-*/
 out/
 
@@ -14,8 +14,8 @@ out/
 *.obj
 
 # Build output binaries (not SDK)
-/build/**/*.exe
-/build/**/*.dll
+# /build/**/*.exe
+# /build/**/*.dll
 
 # Runtime data
 tracking_data.json
