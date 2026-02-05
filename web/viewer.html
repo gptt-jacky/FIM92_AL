@@ -308,10 +308,10 @@
     scene.add(dirLight);
 
     // ---- Tracker 3D objects ----
-    // Each tracker stores: { group, targetPos, targetQuat }
+    // Time-based interpolation for smooth motion between data updates
     const trackerObjects = {};
     const trackerColors = [0x00ff88, 0x00ccff, 0xff8800, 0xff3388, 0xaaff00];
-    const LERP_FACTOR = 0.1; // interpolation speed per frame (lower = smoother)
+    const DATA_INTERVAL = 16; // expected ms between data updates (60Hz)
 
     function getOrCreateTracker(id) {
         if (trackerObjects[id]) return trackerObjects[id];
@@ -353,8 +353,16 @@
         scene.add(group);
         trackerObjects[id] = {
             group,
+            // Previous state (start of interpolation)
+            prevPos: new THREE.Vector3(),
+            prevQuat: new THREE.Quaternion(),
+            // Target state (end of interpolation)
             targetPos: new THREE.Vector3(),
-            targetQuat: new THREE.Quaternion()
+            targetQuat: new THREE.Quaternion(),
+            // Timestamp when target was updated
+            lastUpdateTime: 0,
+            // Has received first data
+            initialized: false
         };
         return trackerObjects[id];
     }
@@ -493,10 +501,27 @@
         if (sf) { sf.style.width = sPct + '%'; sf.style.background = sColor; }
         if (st) { st.textContent = 'S:' + t.stability + ' ' + sName; st.className = 'stability-text s' + t.stability; }
 
-        // 3D object - set target for interpolation
+        // 3D object - time-based interpolation setup
         const obj = getOrCreateTracker(t.id);
+        const now = performance.now();
+
+        if (obj.initialized) {
+            // Save current interpolated position as new start point
+            obj.prevPos.copy(obj.group.position);
+            obj.prevQuat.copy(obj.group.quaternion);
+        } else {
+            // First data: jump directly to position
+            obj.prevPos.set(t.px, t.py, t.pz);
+            obj.prevQuat.set(t.rx, t.ry, t.rz, t.rw);
+            obj.group.position.copy(obj.prevPos);
+            obj.group.quaternion.copy(obj.prevQuat);
+            obj.initialized = true;
+        }
+
+        // Set new target
         obj.targetPos.set(t.px, t.py, t.pz);
         obj.targetQuat.set(t.rx, t.ry, t.rz, t.rw);
+        obj.lastUpdateTime = now;
     }
 
     function buildIODOM(io) {
@@ -593,12 +618,21 @@
     // ---- Animation loop (only 3D rendering + interpolation) ----
     function animate() {
         requestAnimationFrame(animate);
+        const now = performance.now();
 
-        // Interpolate 3D objects toward their targets
+        // Time-based interpolation for smooth motion
         for (const id in trackerObjects) {
-            const t = trackerObjects[id];
-            t.group.position.lerp(t.targetPos, LERP_FACTOR);
-            t.group.quaternion.slerp(t.targetQuat, LERP_FACTOR);
+            const obj = trackerObjects[id];
+            if (!obj.initialized) continue;
+
+            // Calculate interpolation progress (0 to 1+)
+            const elapsed = now - obj.lastUpdateTime;
+            // Allow slight overshoot for extrapolation, clamp at 1.2
+            const t = Math.min(elapsed / DATA_INTERVAL, 1.2);
+
+            // Smooth interpolation from previous to target
+            obj.group.position.lerpVectors(obj.prevPos, obj.targetPos, t);
+            obj.group.quaternion.slerpQuaternions(obj.prevQuat, obj.targetQuat, Math.min(t, 1));
         }
 
         controls.update();
@@ -606,7 +640,6 @@
 
         // FPS counter
         frameCount++;
-        const now = performance.now();
         if (now - lastFpsTime > 1000) {
             document.getElementById('fpsCounter').textContent =
                 Math.round(frameCount * 1000 / (now - lastFpsTime)) + ' FPS';
@@ -616,8 +649,8 @@
     }
     animate();
 
-    // Poll data at ~30Hz
-    setInterval(fetchData, 33);
+    // Poll data at ~60Hz (matches C++ output rate)
+    setInterval(fetchData, 16);
     fetchData();
 
     </script>

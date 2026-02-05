@@ -5,6 +5,7 @@
 #include <fstream>
 #include <string>
 #include <map>
+#include <filesystem>
 
 #include <Antilatency.InterfaceContract.LibraryLoader.h>
 #include <Antilatency.DeviceNetwork.h>
@@ -617,10 +618,19 @@ int main(int argc, char* argv[]) {
 
                 js << "}";
 
-                std::ofstream jsonFile("tracking_data.json");
+                // Atomic write: write to temp file, then rename
+                std::ofstream jsonFile("tracking_data.json.tmp");
                 if (jsonFile.is_open()) {
                     jsonFile << js.str();
                     jsonFile.close();
+                    try {
+                        std::filesystem::rename("tracking_data.json.tmp", "tracking_data.json");
+                    } catch (...) {
+                        // Fallback: copy and delete (Windows sometimes blocks rename)
+                        std::filesystem::copy_file("tracking_data.json.tmp", "tracking_data.json",
+                            std::filesystem::copy_options::overwrite_existing);
+                        std::filesystem::remove("tracking_data.json.tmp");
+                    }
                 }
             }
         }

@@ -145,6 +145,62 @@ struct TrackerInstance {
 
 **目標**：透過 Antilatency 的 Type 屬性識別各個硬體裝置的用途（例如區分「刺針飛彈」與「望遠鏡」）
 
+*(詳見下方 [Type 裝置類型識別](#type-裝置類型識別) 章節)*
+
+### Phase 4：Web 視覺化效能優化
+
+**目標**：解決 3D 視覺化介面的卡頓問題，實現流暢的 60fps 動態追蹤顯示
+
+**問題分析**：
+原本的實作有兩個效能瓶頸：
+
+1. **檔案讀寫競爭**：C++ 直接寫入 `tracking_data.json`，Python server 同時讀取時可能讀到不完整的 JSON，導致解析失敗
+2. **插值方式不當**：使用 frame-based lerp (`position.lerp(target, 0.25)`)，在高 FPS 下物體會快速接近目標後「停住」等待下一筆資料，造成「衝→停→衝→停」的卡頓感
+
+**解決方案**：
+
+#### 4.1 C++ 端：原子檔案寫入
+
+```cpp
+// 之前：直接寫入 (寫入中被讀取 = JSON 損壞)
+std::ofstream jsonFile("tracking_data.json");
+jsonFile << js.str();
+
+// 之後：先寫臨時檔，再原子重命名
+std::ofstream jsonFile("tracking_data.json.tmp");
+jsonFile << js.str();
+jsonFile.close();
+std::filesystem::rename("tracking_data.json.tmp", "tracking_data.json");
+```
+
+#### 4.2 Web 端：時間基準插值 (Time-based Interpolation)
+
+```javascript
+// 之前：frame-based lerp (高 FPS 下會卡頓)
+obj.group.position.lerp(obj.targetPos, 0.25);
+
+// 之後：time-based interpolation (任何 FPS 都平滑)
+const elapsed = now - obj.lastUpdateTime;
+const t = Math.min(elapsed / DATA_INTERVAL, 1.2);
+obj.group.position.lerpVectors(obj.prevPos, obj.targetPos, t);
+```
+
+**時間基準插值原理**：
+- 收到新資料時，記錄「前一個位置」和「時間戳」
+- 每個 render frame 計算經過時間佔預期間隔的比例 (0~1)
+- 物體從前一個位置**勻速滑動**到目標位置
+- 不管渲染 60fps 或 200fps，動作都很平滑
+
+#### 4.3 提升資料輪詢頻率
+
+| 項目 | 之前 | 之後 |
+|------|------|------|
+| C++ 寫入頻率 | 60 Hz (16ms) | 60 Hz (16ms) |
+| Web 輪詢頻率 | 30 Hz (33ms) | **60 Hz (16ms)** |
+| 插值間隔 | 33ms | **16ms** |
+
+**成效**：3D 物體移動從「跳躍式」變成「持續滑動」，延遲感大幅降低
+
 **背景**：
 Antilatency 裝置可以在 AntilatencyService 軟體中設定 Type 屬性，寫入硬體記憶體。程式端可透過 `network.nodeGetStringProperty(node, "Type")` 讀取。
 
@@ -570,7 +626,7 @@ IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
 |------|------|
 | 資料完整性 | `P` + `R` + `S` 包含完整的空間定位資訊，足夠做定位應用 |
 | 穩定度要求 | 必須達到 **S:2 (6DOF)** 才能取得準確的位置資料 |
-| 更新頻率 | 約 60 FPS (每 16ms 更新一次) |
+| 更新頻率 | C++ 60 Hz 寫入 + Web 60 Hz 輪詢 + 時間插值平滑化 |
 | 座標系 | 右手座標系，Y 軸朝上 |
 | 目前格式 | Console 文字輸出，後續可改為 JSON over WebSocket 供網站即時讀取 |
 
@@ -596,6 +652,7 @@ IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
 ### 功能
 
 - **3D 物件顯示**：使用 Three.js 即時渲染追蹤器的位置與旋轉
+- **時間插值平滑化**：採用 time-based interpolation，確保任何螢幕更新率下都能流暢顯示
 - **Position 顯示**：X, Y, Z 座標 (公尺)
 - **Rotation 顯示**：Quaternion (x, y, z, w) + 自動換算 Euler 角度 (Pitch, Yaw, Roll)
 - **Stability 狀態**：S:0~S:3 進度條與文字顯示
@@ -634,13 +691,13 @@ RunWithWebViewer.bat
 TrackingMinimalDemo.exe
     │
     ├── Console 輸出 (即時文字)
-    └── tracking_data.json (每 16ms 更新)
+    └── tracking_data.json (每 16ms 原子寫入)
             │
             └── web/server.py (HTTP Server, port 8080)
                     │
                     └── web/viewer.html (Three.js 3D 渲染)
                             │
-                            └── 瀏覽器 fetch 每 50ms 讀取 JSON
+                            └── 瀏覽器 fetch 每 16ms 讀取 + 時間插值
 ```
 
 ### JSON 資料格式 (tracking_data.json)
