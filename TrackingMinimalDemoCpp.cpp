@@ -251,36 +251,53 @@ static void printUsage(const std::string& progName) {
 int main(int argc, char* argv[]) {
     // ---- Parse arguments ----
     std::vector<SceneConfig> scenes;
+    bool jsonMode = false;  // --json mode: output JSON to stdout only, no file write
 
-    if (argc == 2) {
+    // Check --json flag
+    std::vector<std::string> args;
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--json" || arg == "-j") {
+            jsonMode = true;
+        } else {
+            args.push_back(arg);
+        }
+    }
+
+    if (args.size() == 1) {
         // Config file mode
-        std::string arg1 = argv[1];
-        if (arg1 == "--help" || arg1 == "-h") {
+        if (args[0] == "--help" || args[0] == "-h") {
             printUsage(argv[0]);
             return 0;
         }
-        scenes = parseSceneConfigs(arg1);
+        scenes = parseSceneConfigs(args[0]);
         if (scenes.empty()) {
-            std::cerr << "No valid scenes found in config file: " << arg1 << std::endl;
+            std::cerr << "No valid scenes found in config file: " << args[0] << std::endl;
             return 1;
         }
-    } else if (argc == 3) {
+    } else if (args.size() == 2) {
         // Legacy mode: environment + placement as arguments
         SceneConfig sc;
         sc.name = "Default";
-        sc.environmentData = argv[1];
-        sc.placementData = argv[2];
+        sc.environmentData = args[0];
+        sc.placementData = args[1];
         scenes.push_back(sc);
     } else {
         printUsage(argc > 0 ? argv[0] : "TrackingMinimalDemo");
         return 1;
     }
 
-    std::cout << "Loaded " << scenes.size() << " scene(s):" << std::endl;
-    for (size_t i = 0; i < scenes.size(); i++) {
-        std::cout << "  [" << (i + 1) << "] " << scenes[i].name << std::endl;
+    if (!jsonMode) {
+        std::cout << "Loaded " << scenes.size() << " scene(s):" << std::endl;
+        for (size_t i = 0; i < scenes.size(); i++) {
+            std::cout << "  [" << (i + 1) << "] " << scenes[i].name << std::endl;
+        }
+        std::cout << std::endl;
+    } else {
+        // JSON mode: disable output buffering for pipe
+        std::cout.setf(std::ios::unitbuf);
+        std::cerr << "[JSON Mode] Loaded " << scenes.size() << " scene(s)" << std::endl;
     }
-    std::cout << std::endl;
 
     // ---- Load SDK libraries ----
     #if defined(__linux__)
@@ -330,7 +347,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Failed to create Antilatency Device Network" << std::endl;
         return 1;
     }
-    std::cout << "Antilatency Device Network created" << std::endl;
+    if (!jsonMode) std::cout << "Antilatency Device Network created" << std::endl;
 
     // ---- Initialize first scene ----
     int currentSceneIndex = 0;
@@ -340,7 +357,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     Antilatency::Math::floatP3Q currentPlacement = altTrackingLibrary.createPlacement(scenes[0].placementData);
-    std::cout << "Active scene: [1] " << scenes[0].name << std::endl;
+    if (!jsonMode) std::cout << "Active scene: [1] " << scenes[0].name << std::endl;
 
     // ---- Cotask constructors ----
     Antilatency::Alt::Tracking::ITrackingCotaskConstructor altTrackingCotaskConstructor = altTrackingLibrary.createTrackingCotaskConstructor();
@@ -380,7 +397,7 @@ int main(int argc, char* argv[]) {
     };
     const int inputPinCount = 7;
 
-    std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [O] toggle IO7 output, [Q] quit)" << std::endl;
+    if (!jsonMode) std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [O] toggle IO7 output, [Q] quit)" << std::endl;
 
     // ============================================================
     // Main loop
@@ -464,10 +481,14 @@ int main(int argc, char* argv[]) {
                     ti.number = getNodeNumber(network, node);
                     trackers.push_back(ti);
                     
-                    std::cout << "\nAlt Tracker #" << ti.id;
-                    if (!ti.number.empty()) std::cout << " Number:" << ti.number;
-                    if (!ti.type.empty()) std::cout << " [" << ti.type << "]";
-                    std::cout << " connected!" << std::endl;
+                    if (!jsonMode) {
+                        std::cout << "\nAlt Tracker #" << ti.id;
+                        if (!ti.number.empty()) std::cout << " Number:" << ti.number;
+                        if (!ti.type.empty()) std::cout << " [" << ti.type << "]";
+                        std::cout << " connected!" << std::endl;
+                    } else {
+                        std::cerr << "[JSON] Tracker #" << ti.id << " connected" << std::endl;
+                    }
                 }
             }
 
@@ -494,10 +515,14 @@ int main(int argc, char* argv[]) {
                         hwCotask.run();
                         hwRunning = true;
                         hwType = getNodeType(network, hwNode);
-                        if (!hwType.empty()) {
-                            std::cout << "\nExtension Module [" << hwType << "] connected! (7 input + IO7 output)" << std::endl;
+                        if (!jsonMode) {
+                            if (!hwType.empty()) {
+                                std::cout << "\nExtension Module [" << hwType << "] connected! (7 input + IO7 output)" << std::endl;
+                            } else {
+                                std::cout << "\nExtension Module connected! (7 input + IO7 output)" << std::endl;
+                            }
                         } else {
-                            std::cout << "\nExtension Module connected! (7 input + IO7 output)" << std::endl;
+                            std::cerr << "[JSON] Extension Module connected" << std::endl;
                         }
                     }
                 }
@@ -525,7 +550,7 @@ int main(int argc, char* argv[]) {
             if (hasAnyTracker) {
                 for (auto& t : trackers) {
                     if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
-                    Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.03f);
+                    Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.005f);
                     if (!t.number.empty()) {
                         oss << "#" << t.number;
                     } else {
@@ -564,61 +589,64 @@ int main(int argc, char* argv[]) {
                 oss << "IO: --";
             }
 
-            std::string line = oss.str();
-            if (line.size() < 160) line.resize(160, ' ');
-            std::cout << "\r" << line << std::flush;
+            // ---- Build JSON ----
+            std::ostringstream js;
+            js << std::fixed << std::setprecision(6);
+            js << "{";
+            js << "\"scene\":" << (currentSceneIndex + 1) << ",";
+            js << "\"sceneName\":\"" << scenes[currentSceneIndex].name << "\",";
 
-            // ---- Write JSON for web viewer ----
-            {
-                std::ostringstream js;
-                js << std::fixed << std::setprecision(6);
-                js << "{";
-                js << "\"scene\":" << (currentSceneIndex + 1) << ",";
-                js << "\"sceneName\":\"" << scenes[currentSceneIndex].name << "\",";
-
-                // Trackers array
-                js << "\"trackers\":[";
-                bool firstTracker = true;
-                if (hasAnyTracker) {
-                    for (auto& t : trackers) {
-                        if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
-                        Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.03f);
-                        if (!firstTracker) js << ",";
-                        firstTracker = false;
-                        js << "{\"id\":" << t.id
-                           << ",\"type\":\"" << t.type << "\""
-                           << ",\"number\":\"" << t.number << "\""
-                           << ",\"px\":" << state.pose.position.x
-                           << ",\"py\":" << state.pose.position.y
-                           << ",\"pz\":" << state.pose.position.z
-                           << ",\"rx\":" << state.pose.rotation.x
-                           << ",\"ry\":" << state.pose.rotation.y
-                           << ",\"rz\":" << state.pose.rotation.z
-                           << ",\"rw\":" << state.pose.rotation.w
-                           << ",\"stability\":" << static_cast<int32_t>(state.stability.stage)
-                           << "}";
-                    }
+            // Trackers array
+            js << "\"trackers\":[";
+            bool firstTracker = true;
+            if (hasAnyTracker) {
+                for (auto& t : trackers) {
+                    if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
+                    Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.005f);
+                    if (!firstTracker) js << ",";
+                    firstTracker = false;
+                    js << "{\"id\":" << t.id
+                       << ",\"type\":\"" << t.type << "\""
+                       << ",\"number\":\"" << t.number << "\""
+                       << ",\"px\":" << state.pose.position.x
+                       << ",\"py\":" << state.pose.position.y
+                       << ",\"pz\":" << state.pose.position.z
+                       << ",\"rx\":" << state.pose.rotation.x
+                       << ",\"ry\":" << state.pose.rotation.y
+                       << ",\"rz\":" << state.pose.rotation.z
+                       << ",\"rw\":" << state.pose.rotation.w
+                       << ",\"stability\":" << static_cast<int32_t>(state.stability.stage)
+                       << "}";
                 }
-                js << "],";
+            }
+            js << "],";
 
-                // IO state
-                js << "\"io\":{\"connected\":" << (hasIO ? "true" : "false");
-                if (hasIO) {
-                    js << ",\"type\":\"" << hwType << "\"";
-                    js << ",\"inputs\":[";
-                    for (int i = 0; i < inputPinCount; i++) {
-                        if (i > 0) js << ",";
-                        auto pinState = inputPins[i].getState();
-                        js << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? 1 : 0);
-                    }
-                    js << "]";
-                    js << ",\"io7out\":" << (io7State ? "true" : "false");
+            // IO state
+            js << "\"io\":{\"connected\":" << (hasIO ? "true" : "false");
+            if (hasIO) {
+                js << ",\"type\":\"" << hwType << "\"";
+                js << ",\"inputs\":[";
+                for (int i = 0; i < inputPinCount; i++) {
+                    if (i > 0) js << ",";
+                    auto pinState = inputPins[i].getState();
+                    js << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? 1 : 0);
                 }
-                js << "}";
+                js << "]";
+                js << ",\"io7out\":" << (io7State ? "true" : "false");
+            }
+            js << "}";
+            js << "}";
 
-                js << "}";
+            if (jsonMode) {
+                // --json 模式：只輸出 JSON 到 stdout (一行一筆，供 pipe 使用)
+                std::cout << js.str() << std::endl;
+            } else {
+                // 正常模式：輸出文字到 console + 寫入檔案
+                std::string line = oss.str();
+                if (line.size() < 160) line.resize(160, ' ');
+                std::cout << "\r" << line << std::flush;
 
-                // Atomic write: write to temp file, then rename
+                // Atomic write to file
                 std::ofstream jsonFile("tracking_data.json.tmp");
                 if (jsonFile.is_open()) {
                     jsonFile << js.str();
@@ -626,7 +654,6 @@ int main(int argc, char* argv[]) {
                     try {
                         std::filesystem::rename("tracking_data.json.tmp", "tracking_data.json");
                     } catch (...) {
-                        // Fallback: copy and delete (Windows sometimes blocks rename)
                         std::filesystem::copy_file("tracking_data.json.tmp", "tracking_data.json",
                             std::filesystem::copy_options::overwrite_existing);
                         std::filesystem::remove("tracking_data.json.tmp");
@@ -635,7 +662,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60FPS
+        std::this_thread::sleep_for(std::chrono::milliseconds(2)); // 500Hz - Alt IMU high-speed sampling
     }
 
     // Cleanup

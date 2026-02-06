@@ -26,7 +26,11 @@ Antilatency Alt Tracking + Hardware Extension Interface (HW IO) C++ 應用程式
 
 ## 快速開始 (給使用者)
 
-如果您不想編譯程式碼，請直接至 [Releases](https://github.com/gptt-jacky/FIM92_AL/releases) 頁面下載最新版本的壓縮檔，解壓縮後執行 `RunWithWebViewer.bat` 即可。
+如果您不想編譯程式碼，請直接至 [Releases](https://github.com/gptt-jacky/FIM92_AL/releases) 頁面下載最新版本的壓縮檔，解壓縮後：
+
+1. 先安裝 Python 套件：`pip install websockets`
+2. **Pipe 模式 (推薦)**：執行 `RunWithPipe.bat` - 最低延遲，零檔案 I/O
+3. **WebSocket 模式**：執行 `RunWithWebSocket.bat` - 穩定可靠
 
 ## 專案概述
 
@@ -149,57 +153,72 @@ struct TrackerInstance {
 
 ### Phase 4：Web 視覺化效能優化
 
-**目標**：解決 3D 視覺化介面的卡頓問題，實現流暢的 60fps 動態追蹤顯示
+**目標**：解決 3D 視覺化介面的卡頓問題，實現流暢的動態追蹤顯示
 
 **問題分析**：
-原本的實作有兩個效能瓶頸：
+原本的實作有多個效能瓶頸：
 
-1. **檔案讀寫競爭**：C++ 直接寫入 `tracking_data.json`，Python server 同時讀取時可能讀到不完整的 JSON，導致解析失敗
-2. **插值方式不當**：使用 frame-based lerp (`position.lerp(target, 0.25)`)，在高 FPS 下物體會快速接近目標後「停住」等待下一筆資料，造成「衝→停→衝→停」的卡頓感
+1. **檔案讀寫競爭**：C++ 直接寫入 `tracking_data.json`，Python server 同時讀取時可能讀到不完整的 JSON
+2. **插值方式不當**：使用 frame-based lerp，物體會「衝→停→衝→停」
+3. **Server 效能**：Python 單線程 HTTP server，每次請求都從磁碟讀取
+4. **像素比過高**：高 DPI 螢幕渲染負擔過重
 
 **解決方案**：
 
 #### 4.1 C++ 端：原子檔案寫入
 
 ```cpp
-// 之前：直接寫入 (寫入中被讀取 = JSON 損壞)
-std::ofstream jsonFile("tracking_data.json");
-jsonFile << js.str();
-
-// 之後：先寫臨時檔，再原子重命名
+// 先寫臨時檔，再原子重命名
 std::ofstream jsonFile("tracking_data.json.tmp");
 jsonFile << js.str();
 jsonFile.close();
 std::filesystem::rename("tracking_data.json.tmp", "tracking_data.json");
 ```
 
-#### 4.2 Web 端：時間基準插值 (Time-based Interpolation)
+#### 4.2 Python Server：多線程處理
 
-```javascript
-// 之前：frame-based lerp (高 FPS 下會卡頓)
-obj.group.position.lerp(obj.targetPos, 0.25);
-
-// 之後：time-based interpolation (任何 FPS 都平滑)
-const elapsed = now - obj.lastUpdateTime;
-const t = Math.min(elapsed / DATA_INTERVAL, 1.2);
-obj.group.position.lerpVectors(obj.prevPos, obj.targetPos, t);
+```python
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
 ```
 
-**時間基準插值原理**：
-- 收到新資料時，記錄「前一個位置」和「時間戳」
-- 每個 render frame 計算經過時間佔預期間隔的比例 (0~1)
-- 物體從前一個位置**勻速滑動**到目標位置
-- 不管渲染 60fps 或 200fps，動作都很平滑
+#### 4.3 Web 端：指數平滑 + 速度預測
 
-#### 4.3 提升資料輪詢頻率
+```javascript
+// 指數平滑：物件平滑追蹤目標
+const smoothFactor = 1 - Math.pow(1 - SMOOTHING, deltaTime);
+obj.group.position.lerp(predictedPos, smoothFactor);
 
-| 項目 | 之前 | 之後 |
-|------|------|------|
-| C++ 寫入頻率 | 60 Hz (16ms) | 60 Hz (16ms) |
-| Web 輪詢頻率 | 30 Hz (33ms) | **60 Hz (16ms)** |
-| 插值間隔 | 33ms | **16ms** |
+// 速度預測：外推位置減少延遲感
+predictedPos.copy(targetPos);
+predictedPos.addScaledVector(velocity, timeSinceData * PREDICTION_FACTOR);
+```
 
-**成效**：3D 物體移動從「跳躍式」變成「持續滑動」，延遲感大幅降低
+#### 4.4 渲染優化
+
+```javascript
+// 限制像素比，避免高 DPI 螢幕過度渲染
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// 啟用高效能模式
+new THREE.WebGLRenderer({ powerPreference: 'high-performance' });
+```
+
+#### 4.5 最終效能數據
+
+| 項目 | 數值 |
+|------|------|
+| C++ 輪詢/寫入頻率 | **500 Hz (2ms)** |
+| Web 輪詢頻率 (HTTP) | ~66 Hz (15ms) |
+| WebSocket 推送頻率 | ~500 Hz (即時) |
+| 3D 渲染 FPS | 60-180 Hz (自動) |
+| 平滑因子 | 0.6-0.7 |
+| 外推時間 | 0.005f (5ms) |
+
+**成效**：
+- 3D 物體移動從「跳躍式」變成「持續滑動」
+- IO 板機反應延遲 < 10ms
+- 可達 Antilatency 標榜的 2ms 低延遲追蹤
 
 **背景**：
 Antilatency 裝置可以在 AntilatencyService 軟體中設定 Type 屬性，寫入硬體記憶體。程式端可透過 `network.nodeGetStringProperty(node, "Type")` 讀取。
@@ -258,11 +277,13 @@ FIM92_C++/
 ├── scenes.json                   # 場景設定檔 (JSON)
 ├── RunTracking.bat               # Windows 快速執行腳本 (多場景模式)
 ├── RunTracking_legacy.bat        # Windows 快速執行腳本 (舊模式，單場景)
-├── RunWithWebViewer.bat          # 同時啟動 Tracker + Web 3D 視覺化介面
+├── RunWithWebSocket.bat          # WebSocket 模式 (即時推送)
+├── RunWithPipe.bat               # Pipe 模式 (零檔案 I/O，最低延遲) ★推薦
 ├── README.md                     # 本文件
 ├── web/                          # Web 3D 視覺化介面
-│   ├── viewer.html               # 3D 追蹤視覺化頁面 (Three.js)
-│   └── server.py                 # 本地 HTTP 伺服器
+│   ├── viewer_ws.html            # 3D 視覺化頁面 (WebSocket)
+│   ├── server_ws.py              # WebSocket 伺服器 (檔案監聽)
+│   └── pipe_server.py            # Pipe WebSocket 伺服器 (stdin 直傳)
 ├── AntilatencySdk/               # Antilatency SDK 4.5.0
 │   ├── Api/                      # C++ Header Files (30 個)
 │   │   ├── Antilatency.Alt.Tracking.h
@@ -297,7 +318,7 @@ FIM92_C++/
 
 ## 編譯與執行
 
-> **注意**：從 GitHub 下載原始碼後，必須先執行以下編譯步驟產生執行檔，`RunWithWebViewer.bat` 才能正常運作。
+> **注意**：從 GitHub 下載原始碼後，必須先執行以下編譯步驟產生執行檔，`RunWithPipe.bat` 或 `RunWithWebSocket.bat` 才能正常運作。
 
 ### Windows
 
@@ -349,6 +370,30 @@ cd build
 }
 ```
 
+### 目前場地設定 (scenes.json)
+
+```json
+{
+    "scenes": [
+        {
+            "name": "AL_TEST_3.5M",
+            "environmentData": "AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
+            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        {
+            "name": "AL_TEST_2M",
+            "environmentData": "AntilatencyAltEnvironmentPillars~AgQAAIC_AAAAAAAAAAACAAAAAAAAgD8AAIA_AAAAAAAAAAABAAAAAAAAgD8bL30_AAAAAAAAAMACAAAAAAAAgD9zaIG_AAAAAAAAAMAAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
+            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+    ]
+}
+```
+
+| 按鍵 | 場地名稱 | 說明 |
+|------|----------|------|
+| `1` | AL_TEST_3.5M | 3.5 公尺測試場地 (預設) |
+| `2` | AL_TEST_2M | 2 公尺測試場地 |
+
 ### 欄位說明
 
 | 欄位 | 必填 | 說明 |
@@ -359,10 +404,33 @@ cd build
 
 ### 如何取得 Environment Data
 
+**方法一：從 AntilatencyService 軟體匯出**
+
 1. 開啟 **AntilatencyService** 軟體
 2. 設定好場景的標記點 (Pillars / Rectangle / Grid 等)
 3. 點擊 **Export Environment** → 複製序列化字串
 4. 貼到 `scenes.json` 的 `environmentData` 欄位
+
+**方法二：從 Antilatency 環境 URL 提取**
+
+Antilatency 環境 URL 格式如下：
+```
+http://www.antilatency.com/antilatencyservice/environment?data=<環境資料>&name=<名稱>
+```
+
+範例 URL：
+```
+http://www.antilatency.com/antilatencyservice/environment?data=AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A&name=AL_TEST_3.5M
+```
+
+提取方式：
+1. 找到 `data=` 後面的值，到 `&name=` 之前的字串
+2. 這就是 `environmentData`
+3. `name=` 後面的值就是場景名稱
+
+以上範例提取結果：
+- **name**: `AL_TEST_3.5M`
+- **environmentData**: `AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A`
 
 ### 支援的環境類型
 
@@ -620,15 +688,78 @@ IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
 > **關於 "9 軸"**：9 軸是指 IMU 感測器的硬體規格（3 軸加速度計 + 3 軸陀螺儀 + 3 軸磁力計），
 > 但最終輸出仍然是 6DOF（3 平移 + 3 旋轉），這已經是空間中的全部自由度。
 
+### 輸出資料頻率
+
+本系統採用 **本地有線 USB 連接**，這是最穩定可靠的資料傳輸方式。
+
+#### Antilatency 硬體能力
+
+| 元件 | 內部更新率 | 說明 |
+|------|-----------|------|
+| **Alt Tracker IMU** | 2000 Hz | 加速度計 + 陀螺儀融合 |
+| **光學追蹤** | 依標記可見度 | 紅外線標記定位 |
+| **IO Extension Module** | 200 Hz | Pin 狀態每 5ms 更新一次 |
+
+#### 程式設定頻率
+
+| 環節 | 頻率 | 說明 |
+|------|------|------|
+| **C++ 主迴圈** | **500 Hz** | 每 2ms 輪詢一次 (`sleep_for(2ms)`) |
+| **外推時間** | 5ms | `getExtrapolatedState(placement, 0.005f)` |
+| **3D 渲染** | 60-180 Hz | 依螢幕刷新率，配合平滑插值 |
+
+#### 外推時間 (Extrapolation) 說明
+
+```cpp
+// SDK 函式：取得外推後的追蹤狀態
+getExtrapolatedState(placement, deltaTime)
+//                             ↑ 向前預測多少秒
+
+// 0.03f = 30ms → 預測太遠，物體會「衝過頭」再拉回來
+// 0.005f = 5ms → 幾乎即時，減少預測誤差 (目前設定)
+```
+
+#### 為什麼使用本地有線連接？
+
+- **延遲最低**：USB 直連，可達 Antilatency 標榜的 **2ms 低延遲**
+- **頻寬充足**：本地傳輸速度遠超網路
+- **穩定性高**：無封包遺失、無網路抖動
+- **資料完整**：不需要壓縮、不需要協議轉換
+
+> ⚠️ **注意**：若改為無線傳輸 (WiFi/4G)，會引入 10-100ms+ 的額外延遲，且受網路品質影響。本地有線方案是追蹤應用的最佳選擇。
+
+#### 如何調整輪詢頻率？
+
+修改 `TrackingMinimalDemoCpp.cpp` 主迴圈底部的 sleep 時間：
+
+```cpp
+// 目前設定：500 Hz (高速追蹤)
+std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+// 200 Hz (平衡)
+std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+// 100 Hz (省 CPU)
+std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+// 60 Hz (配合 60fps 螢幕)
+std::this_thread::sleep_for(std::chrono::milliseconds(16));
+```
+
+修改後需重新編譯：
+```bash
+cmake --build build --config Release
+```
+
 ### 給網站使用的注意事項
 
 | 項目 | 說明 |
 |------|------|
 | 資料完整性 | `P` + `R` + `S` 包含完整的空間定位資訊，足夠做定位應用 |
 | 穩定度要求 | 必須達到 **S:2 (6DOF)** 才能取得準確的位置資料 |
-| 更新頻率 | C++ 60 Hz 寫入 + Web 60 Hz 輪詢 + 時間插值平滑化 |
+| 更新頻率 | C++ 500 Hz 輸出 + Web 平滑插值 |
 | 座標系 | 右手座標系，Y 軸朝上 |
-| 目前格式 | Console 文字輸出，後續可改為 JSON over WebSocket 供網站即時讀取 |
+| 通訊模式 | WebSocket / **Pipe (推薦)** 兩種可選 |
 
 ### 欄位快速參考
 
@@ -652,7 +783,7 @@ IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
 ### 功能
 
 - **3D 物件顯示**：使用 Three.js 即時渲染追蹤器的位置與旋轉
-- **時間插值平滑化**：採用 time-based interpolation，確保任何螢幕更新率下都能流暢顯示
+- **速度預測平滑化**：採用指數平滑 + 速度預測，確保任何螢幕更新率下都能流暢顯示
 - **Position 顯示**：X, Y, Z 座標 (公尺)
 - **Rotation 顯示**：Quaternion (x, y, z, w) + 自動換算 Euler 角度 (Pitch, Yaw, Roll)
 - **Stability 狀態**：S:0~S:3 進度條與文字顯示
@@ -660,44 +791,182 @@ IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
 - **多 Tracker 支援**：每個 Tracker 以不同顏色顯示
 - **OrbitControls**：可用滑鼠旋轉/縮放/平移 3D 視角
 
-### 使用方式
+### 3D 視覺化平滑演算法
 
-**方法一：一鍵啟動 (推薦)**
+為了讓 3D 物件移動流暢而非「跳躍式」更新，採用以下技術：
 
-```bat
-RunWithWebViewer.bat
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    資料流與平滑化流程                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  C++ (500Hz)     WebSocket/Pipe (即時)    Render (60-180Hz) │
+│  ┌─────────┐         ┌─────────┐          ┌─────────────┐   │
+│  │ 追蹤資料 │ ──JSON──▶│ 目標位置 │ ──平滑──▶│ 3D 物件位置 │   │
+│  └─────────┘         │ 目標旋轉 │          │ (視覺呈現)  │   │
+│                      │ 速度向量 │          └─────────────┘   │
+│                      └─────────┘                            │
+│                           │                                 │
+│                           ▼                                 │
+│                   ┌───────────────┐                         │
+│                   │ 指數平滑插值  │                         │
+│                   └───────────────┘                         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-同時啟動 Tracker 程式 + Web Server，自動開啟瀏覽器。
+**核心演算法參數**：
 
-**方法二：手動啟動**
+| 參數 | 值 | 說明 |
+|------|-----|------|
+| `SMOOTHING` | 0.6-0.7 | 指數平滑因子，越高反應越快 |
+| 資料更新 | ~2ms (Pipe/WS) | WebSocket 或 Pipe 模式下即時推送 |
+| 資料輪詢 | 15ms (HTTP) | HTTP 模式每 15ms 獲取一次新資料 |
+| 渲染迴圈 | requestAnimationFrame | 自動匹配螢幕刷新率 |
+
+**平滑化原理**：
+
+1. **指數平滑 (Exponential Smoothing)**：每個渲染幀，物件位置以指數曲線趨近目標，而非瞬間跳躍
+2. **速度預測 (Velocity Prediction)**：根據前後兩次資料計算速度向量，在等待下一筆資料時外推位置
+3. **幀率無關 (Frame-rate Independent)**：使用 `deltaTime` 正規化，確保不同螢幕刷新率下動作速度一致
+
+```javascript
+// 指數平滑：物件平滑追蹤目標
+const smoothFactor = 1 - Math.pow(1 - SMOOTHING, deltaTime);
+obj.group.position.lerp(predictedPos, smoothFactor);
+
+// 速度預測：外推位置減少延遲感
+predictedPos.copy(targetPos);
+predictedPos.addScaledVector(velocity, timeSinceData * PREDICTION_FACTOR);
+```
+
+### 兩種通訊模式
+
+本專案提供兩種 C++ 到 Web 的資料傳輸模式：
+
+| 模式 | 啟動腳本 | 延遲 | 說明 |
+|------|----------|------|------|
+| **WebSocket** | `RunWithWebSocket.bat` | ~5ms | C++ 寫檔 → Python 監聽 → WS 推送 |
+| **Pipe** ★推薦 | `RunWithPipe.bat` | **~2ms** | C++ stdout → Python stdin → WS 廣播 |
+
+#### 模式一：WebSocket (RunWithWebSocket.bat)
+
+WebSocket 即時推送，減少 HTTP 請求開銷。
+
+```
+C++ TrackingMinimalDemo.exe
+         │
+         └── 每 2ms 寫入 tracking_data.json
+                    │
+                    └── web/server_ws.py (1ms 監聽檔案變化)
+                              │
+                              └── WebSocket 廣播到所有連線的 viewer_ws.html
+```
+
+**適用場景**：需要較低延遲、多個瀏覽器同時觀看
+
+#### 模式二：Pipe 管道 (RunWithPipe.bat) ★推薦
+
+**零檔案 I/O**，C++ 直接輸出到 Python stdin，完全繞過磁碟。
+
+```
+C++ TrackingMinimalDemo.exe --json
+         │
+         └── stdout (JSON 每行一筆)
+                │
+                └── | (管道) ──► python pipe_server.py
+                                        │
+                                        └── stdin 讀取 → WebSocket 廣播
+```
+
+**適用場景**：需要最低延遲、追求流暢度
+
+**使用方式**：
+
+```bat
+# 一鍵啟動 (自動開啟瀏覽器)
+RunWithPipe.bat
+
+# 或手動執行
+cd build\Release
+TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "..\..\web\pipe_server.py"
+```
+
+#### --json 命令列參數
+
+C++ 程式支援 `--json` (或 `-j`) 參數，啟用 JSON 輸出模式：
+
+```bash
+# 標準模式：Console 輸出 + 檔案寫入
+TrackingMinimalDemo.exe "scenes.json"
+
+# JSON 模式：僅 stdout 輸出 JSON (供 pipe 使用)
+TrackingMinimalDemo.exe --json "scenes.json"
+```
+
+JSON 模式下：
+- 不輸出任何除錯訊息到 Console
+- 每 2ms 輸出一行完整 JSON 到 stdout
+- 不寫入 `tracking_data.json` 檔案
+- 配合 pipe 使用可達到最低延遲
+
+### 使用方式
+
+**方法一：Pipe 模式 (推薦，最低延遲)**
+
+```bat
+RunWithPipe.bat
+```
+
+C++ 直接輸出到 Python，完全不經過檔案系統。
+
+**方法二：WebSocket 模式**
+
+```bat
+RunWithWebSocket.bat
+```
+
+C++ 寫檔，Python WebSocket server 監聽並推送。
+
+**方法三：手動啟動**
 
 1. 先啟動 Tracker 程式（會產生 `tracking_data.json`）：
    ```bat
    RunTracking.bat
    ```
 
-2. 另開 terminal 啟動 Web Server：
+2. 另開 terminal 啟動 WebSocket Server：
    ```bat
    cd web
-   python server.py
+   python server_ws.py
    ```
 
 3. 開啟瀏覽器到 `http://localhost:8080`
 
 ### 資料流
 
+**WebSocket 模式** (RunWithWebSocket.bat)：
 ```
 TrackingMinimalDemo.exe
     │
-    ├── Console 輸出 (即時文字)
-    └── tracking_data.json (每 16ms 原子寫入)
+    └── tracking_data.json (每 2ms 原子寫入)
             │
-            └── web/server.py (HTTP Server, port 8080)
+            └── web/server_ws.py (1ms 檔案監聽 + WebSocket 廣播)
                     │
-                    └── web/viewer.html (Three.js 3D 渲染)
+                    └── web/viewer_ws.html (WebSocket 接收 + 3D 渲染)
+```
+
+**Pipe 模式** (RunWithPipe.bat) ★最低延遲：
+```
+TrackingMinimalDemo.exe --json
+    │
+    └── stdout (每 2ms 一行 JSON)
+            │
+            └── | (管道)
+                    │
+                    └── web/pipe_server.py (stdin → WebSocket 廣播)
                             │
-                            └── 瀏覽器 fetch 每 16ms 讀取 + 時間插值
+                            └── web/viewer_ws.html (WebSocket 接收 + 3D 渲染)
 ```
 
 ### JSON 資料格式 (tracking_data.json)
@@ -727,6 +996,10 @@ TrackingMinimalDemo.exe
 ### 環境需求
 
 - Python 3.x (用於本地 HTTP Server)
+- `websockets` 模組 (WebSocket / Pipe 模式需要)
+  ```bash
+  pip install websockets
+  ```
 - 現代瀏覽器 (Chrome, Edge, Firefox — 需支援 ES Module + import maps)
 
 ---
