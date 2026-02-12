@@ -1,11 +1,12 @@
 # Build output
-# build/
+build/
 cmake-build-*/
 out/
 
 # IDE
 .vs/
 .vscode/
+.claude/
 *.user
 *.suo
 
@@ -13,13 +14,13 @@ out/
 *.o
 *.obj
 
-# Build output binaries (not SDK)
-# /build/**/*.exe
-# /build/**/*.dll
-
 # Runtime data
 tracking_data.json
+
+# Backup files
+*.bak
 
 # OS files
 Thumbs.db
 .DS_Store
+nul
