@@ -8,8 +8,8 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Consolas', 'Courier New', monospace;
-            background: #0a0a0a;
-            color: #e0e0e0;
+            background: #1a1a1a; /* 深黑色背景 */
+            color: #e0e0e0;      /* 淺灰文字 */
             overflow: hidden;
             height: 100vh;
         }
@@ -24,8 +24,8 @@
 
         .topbar {
             grid-column: 1 / -1;
-            background: #111;
-            border-bottom: 1px solid #333;
+            background: #333; /* Topbar 保持深色以利對比 */
+            border-bottom: 1px solid #555;
             display: flex;
             align-items: center;
             padding: 0 20px;
@@ -49,7 +49,7 @@
             50% { opacity: 0.4; }
         }
         .scene-badge {
-            background: #1a1a2e;
+            background: #222;
             border: 1px solid #444;
             padding: 4px 12px;
             border-radius: 4px;
@@ -65,10 +65,20 @@
             font-size: 10px;
             color: #00ff88;
         }
+        .control-btn {
+            background: #222; border: 1px solid #444; color: #ccc;
+            padding: 4px 10px; border-radius: 4px; cursor: pointer;
+            font-family: inherit; font-size: 12px; transition: all 0.2s;
+        }
+        .control-btn:hover { background: #333; border-color: #666; color: #fff; }
+        .control-btn:active { background: #444; }
+        .control-btn.active { background: #004422; border-color: #00ff88; color: #00ff88; }
+        .control-group { display: flex; gap: 5px; align-items: center; }
+        .divider { width: 1px; height: 20px; background: #333; margin: 0 10px; }
 
         .viewport {
             position: relative;
-            background: #0d0d0d;
+            background: #1a1a1a;
         }
         #canvas3d {
             width: 100%;
@@ -77,7 +87,7 @@
         }
 
         .panel {
-            background: #111;
+            background: #222; /* 面板深色 */
             border-left: 1px solid #333;
             overflow-y: auto;
             padding: 16px;
@@ -87,15 +97,15 @@
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 2px;
-            color: #666;
+            color: #888;
             margin-bottom: 10px;
-            border-bottom: 1px solid #222;
+            border-bottom: 1px solid #444;
             padding-bottom: 6px;
         }
 
         .data-card {
-            background: #1a1a1a;
-            border: 1px solid #2a2a2a;
+            background: #111; /* 卡片更深 */
+            border: 1px solid #333;
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 10px;
@@ -118,7 +128,7 @@
         .data-row .num.rot { color: #ff8800; }
 
         .stability { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
-        .stability-bar { flex: 1; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+        .stability-bar { flex: 1; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
         .stability-fill { height: 100%; border-radius: 3px; }
         .stability-text { font-size: 11px; min-width: 70px; text-align: right; }
         .s0 { color: #ff3333; }
@@ -127,25 +137,50 @@
         .s3 { color: #0088ff; }
 
         .io-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-        .io-pin { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px 4px; text-align: center; }
+        .io-pin { background: #222; border: 1px solid #333; border-radius: 4px; padding: 8px 4px; text-align: center; }
         .io-pin .pin-name { font-size: 9px; color: #666; margin-bottom: 4px; }
         .io-pin .pin-val { font-size: 16px; font-weight: bold; }
-        .io-pin.on { background: #0a2a0a; border-color: #00ff88; }
+        .io-pin.on { background: #004422; border-color: #00ff88; }
         .io-pin.on .pin-val { color: #00ff88; }
-        .io-pin.off .pin-val { color: #333; }
+        .io-pin.off .pin-val { color: #444; }
         .io-pin.output { border-color: #ff8800; }
-        .io-pin.output.on { background: #2a1a0a; border-color: #ff8800; }
+        .io-pin.output.on { background: #442200; border-color: #ff8800; }
         .io-pin.output.on .pin-val { color: #ff8800; }
 
-        .tracker-badge { display: inline-flex; align-items: center; gap: 6px; background: #1a1a2e; border: 1px solid #333; border-radius: 4px; padding: 4px 10px; margin-bottom: 8px; }
+        .tracker-badge { display: inline-flex; align-items: center; gap: 6px; background: #222; border: 1px solid #333; border-radius: 4px; padding: 4px 10px; margin-bottom: 8px; }
         .tracker-badge .tid { color: #00ccff; font-weight: bold; font-size: 14px; }
         .tracker-badge .ttype { color: #888; font-size: 11px; }
-        .no-data { color: #333; font-style: italic; font-size: 13px; padding: 20px; text-align: center; }
+        .no-data { color: #555; font-style: italic; font-size: 13px; padding: 20px; text-align: center; }
 
         .euler-row { display: flex; gap: 8px; margin-top: 6px; }
-        .euler-item { flex: 1; text-align: center; background: #151515; border-radius: 4px; padding: 4px; }
+        .euler-item { flex: 1; text-align: center; background: #222; border-radius: 4px; padding: 4px; }
         .euler-item .axis { font-size: 10px; color: #555; }
         .euler-item .deg { font-size: 13px; color: #ff8800; }
+
+        .model-orient { margin-bottom: 20px; }
+        .model-orient h2 {
+            font-size: 12px; text-transform: uppercase; letter-spacing: 2px;
+            color: #888; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 6px;
+        }
+        .orient-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .orient-row .axis-label { color: #ff8800; font-size: 13px; font-weight: bold; width: 16px; }
+        .orient-row input[type=range] {
+            flex: 1; height: 4px; -webkit-appearance: none; appearance: none;
+            background: #333; border-radius: 2px; outline: none;
+        }
+        .orient-row input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: #ff8800; cursor: pointer;
+        }
+        .orient-row .deg-val { color: #ccc; font-size: 12px; width: 45px; text-align: right; font-variant-numeric: tabular-nums; }
+        .orient-btns { display: flex; gap: 6px; margin-top: 6px; }
+        .orient-btns button {
+            flex: 1; background: #222; border: 1px solid #444; color: #aaa;
+            padding: 4px 0; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px;
+        }
+        .orient-btns button:hover { background: #333; color: #fff; border-color: #666; }
+        .orient-btns button.save-btn { border-color: #00ff88; color: #00ff88; }
+        .orient-btns button.save-btn:hover { background: #004422; }
     </style>
 </head>
 <body>
@@ -153,10 +188,27 @@
         <div class="topbar">
             <div class="status-dot" id="statusDot"></div>
             <h1>FIM92 TRACKING (WebSocket)</h1>
-            <div class="ws-badge">WS</div>
-            <div class="scene-badge">Scene: <span id="sceneInfo">--</span></div>
+            <div class="ws-badge">WS v8 (Pipe)</div>
+            
+            <div class="divider"></div>
+            <div class="control-group">
+                <span style="font-size:11px;color:#666;">SCENE:</span>
+                <button class="control-btn" onclick="sendCmd('1')">1</button>
+                <button class="control-btn" onclick="sendCmd('2')">2</button>
+                <button class="control-btn" onclick="sendCmd('3')">3</button>
+            </div>
+            <div class="scene-badge" style="margin-left:10px;">Current: <span id="sceneInfo">--</span></div>
+
+            <div class="divider"></div>
+            <div class="control-group">
+                <span style="font-size:11px;color:#666;">AXIS FIX:</span>
+                <button class="control-btn" id="btnFlipYaw" onclick="toggleFix('flipYaw')" title="Yaw +180° (前後顛倒修正)">Y+180</button>
+                <button class="control-btn" id="btnInvPitch" onclick="toggleFix('invPitch')" title="反轉 Pitch (上下反向修正)">-P</button>
+                <button class="control-btn" id="btnInvYaw" onclick="toggleFix('invYaw')" title="反轉 Yaw (左右反向修正)">-Y</button>
+                <button class="control-btn" id="btnInvRoll" onclick="toggleFix('invRoll')" title="反轉 Roll">-R</button>
+            </div>
+
             <div style="flex:1"></div>
-            <div style="font-size:11px;color:#666;margin-right:10px;">[R] 切換模式</div>
             <div style="font-size:12px;color:#00ff88;" id="dataRate">-- Data/s</div>
             <div style="font-size:12px;color:#555;margin-left:15px;" id="fpsCounter">-- FPS</div>
         </div>
@@ -166,6 +218,28 @@
         </div>
 
         <div class="panel">
+            <div class="model-orient">
+                <h2>Model Orientation</h2>
+                <div class="orient-row">
+                    <span class="axis-label">X</span>
+                    <input type="range" id="orientX" min="-180" max="180" value="0" step="1" oninput="updateOrient()">
+                    <span class="deg-val" id="orientXVal">0°</span>
+                </div>
+                <div class="orient-row">
+                    <span class="axis-label">Y</span>
+                    <input type="range" id="orientY" min="-180" max="180" value="0" step="1" oninput="updateOrient()">
+                    <span class="deg-val" id="orientYVal">0°</span>
+                </div>
+                <div class="orient-row">
+                    <span class="axis-label">Z</span>
+                    <input type="range" id="orientZ" min="-180" max="180" value="0" step="1" oninput="updateOrient()">
+                    <span class="deg-val" id="orientZVal">0°</span>
+                </div>
+                <div class="orient-btns">
+                    <button onclick="resetOrient()">Reset</button>
+                    <button class="save-btn" onclick="saveOrient()">Save</button>
+                </div>
+            </div>
             <div id="trackerPanels">
                 <div class="no-data">Connecting to WebSocket...</div>
             </div>
@@ -173,6 +247,9 @@
                 <h2>IO Pins</h2>
                 <div id="ioPanel">
                     <div class="no-data">No IO data</div>
+                </div>
+                <div style="margin-top:10px; text-align:center;">
+                    <button class="control-btn" id="btnIO7" style="width:100%; padding:8px;" onclick="sendCmd('O')">TOGGLE IO7</button>
                 </div>
             </div>
         </div>
@@ -190,7 +267,7 @@
     const canvas = document.getElementById('canvas3d');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x0d0d0d);
+    renderer.setClearColor(0x1a1a1a); // 背景保持黑色
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
@@ -204,7 +281,14 @@
     controls.maxPolarAngle = Math.PI * 0.9;
 
     // Grid & Axes
-    scene.add(new THREE.GridHelper(6, 30, 0x222222, 0x181818));
+    // Gray floor plane
+    const floorGeo = new THREE.PlaneGeometry(6, 6);
+    const floorMat = new THREE.MeshBasicMaterial({ color: 0x555555 }); // 33% 灰地板
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.001; // slightly below grid
+    scene.add(floor);
+    scene.add(new THREE.GridHelper(6, 30, 0xaaaaaa, 0x777777)); // 淺灰格線
     const axMat = (c) => new THREE.LineBasicMaterial({ color: c });
     function makeLine(from, to, color) {
         const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from), new THREE.Vector3(...to)]);
@@ -215,10 +299,106 @@
     scene.add(makeLine([0,0,0], [0,0,2], 0x3333ff));
 
     // Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6)); // 增強環境光
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(5, 8, 5);
     scene.add(dirLight);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6); // 增加半球光，增加立體感
+    scene.add(hemiLight);
+
+    // ---- Environment Pillars ----
+    let pillarsBuilt = false;
+    const pillarGroup = new THREE.Group();
+    scene.add(pillarGroup);
+
+    function decodeAntilatencyPillars(envString) {
+        const prefix = 'AntilatencyAltEnvironmentPillars~';
+        if (!envString || !envString.startsWith(prefix)) return null;
+
+        let b64 = envString.slice(prefix.length);
+        b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+
+        const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        const view = new DataView(raw.buffer);
+
+        const numPillars = raw[1];
+        const pillars = [];
+
+        for (let i = 0; i < numPillars; i++) {
+            const off = 2 + i * 21;
+            pillars.push({
+                x: view.getFloat32(off, true),
+                y: view.getFloat32(off + 4, true),
+                z: view.getFloat32(off + 8, true),
+                kind: raw[off + 12]
+            });
+        }
+
+        const footerOff = 2 + numPillars * 21;
+        const pillarLength = view.getFloat32(footerOff + 1, true);
+
+        // Read proportions to find verticalOffset
+        const numTypes = raw[footerOff];
+        const numProps = raw[footerOff + 5];
+        const strOff = footerOff + 6 + numProps * 5;
+        const strLen = raw[strOff];
+        const paramOff = strOff + 1 + strLen;
+        const verticalOffset = view.getFloat32(paramOff + 4, true);
+
+        return { pillars, pillarLength, verticalOffset };
+    }
+
+    function buildPillars(envData) {
+        if (pillarsBuilt) return;
+        const env = decodeAntilatencyPillars(envData);
+        if (!env) return;
+        pillarsBuilt = true;
+
+        const kindColors = [0xff3388, 0x00ccff, 0xffaa00]; // A, B, C
+        const kindLabels = ['A', 'B', 'C'];
+
+        for (const p of env.pillars) {
+            // Pillar bar (thin cylinder)
+            const barGeo = new THREE.CylinderGeometry(0.008, 0.008, env.pillarLength, 8);
+            const barMat = new THREE.MeshStandardMaterial({
+                color: kindColors[p.kind] || 0xffffff,
+                roughness: 0.3,
+                metalness: 0.7,
+                emissive: kindColors[p.kind] || 0xffffff,
+                emissiveIntensity: 0.3
+            });
+            const bar = new THREE.Mesh(barGeo, barMat);
+            const centerY = env.verticalOffset + env.pillarLength / 2;
+            bar.position.set(p.x, centerY, p.z);
+            pillarGroup.add(bar);
+
+            // Top IR marker (small glowing sphere)
+            const topSphere = new THREE.Mesh(
+                new THREE.SphereGeometry(0.012, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0xff0044 })
+            );
+            topSphere.position.set(p.x, env.verticalOffset + env.pillarLength, p.z);
+            pillarGroup.add(topSphere);
+
+            // Bottom IR marker
+            const botSphere = new THREE.Mesh(
+                new THREE.SphereGeometry(0.012, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0xff0044 })
+            );
+            botSphere.position.set(p.x, env.verticalOffset, p.z);
+            pillarGroup.add(botSphere);
+
+            // Base plate
+            const baseGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.005, 16);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            base.position.set(p.x, 0.0025, p.z);
+            pillarGroup.add(base);
+        }
+
+        console.log(`[Pillars] Built ${env.pillars.length} pillars (h=${env.pillarLength}m, offset=${env.verticalOffset}m)`);
+    }
 
     // Tracker objects
     const trackerObjects = {};
@@ -226,25 +406,37 @@
 
     function getOrCreateTracker(id) {
         if (trackerObjects[id]) return trackerObjects[id];
-        const color = trackerColors[(id - 1) % trackerColors.length];
         const group = new THREE.Group();
+        const innerGroup = new THREE.Group();
 
-        const bodyMat = new THREE.MeshPhongMaterial({ color, transparent: true, opacity: 0.85, flatShading: true });
-        group.add(new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.25), bodyMat));
-        group.add(new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.25), new THREE.MeshBasicMaterial({ color, wireframe: true })));
+        // --- XYZ Axis Arrows (same colors as scene axes) ---
+        const arrowLen = 0.12;
+        const headLen = 0.03;
+        const headW = 0.012;
 
-        const aLen = 0.3;
-        group.add(makeLine([0,0,0], [aLen,0,0], 0xff4444));
-        group.add(makeLine([0,0,0], [0,aLen,0], 0x44ff44));
-        group.add(makeLine([0,0,0], [0,0,aLen], 0x4444ff));
+        // X = Red, Y = Green, Z = Blue
+        innerGroup.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(), arrowLen, 0xff3333, headLen, headW));
+        innerGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(), arrowLen, 0x33ff33, headLen, headW));
+        innerGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(), arrowLen, 0x3333ff, headLen, headW));
 
-        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.06, 8), new THREE.MeshBasicMaterial({ color: 0x4444ff }));
-        arrow.rotation.x = -Math.PI / 2;
-        arrow.position.z = 0.16;
-        group.add(arrow);
+        // Small white sphere at origin
+        const originSphere = new THREE.Mesh(
+            new THREE.SphereGeometry(0.008, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        innerGroup.add(originSphere);
 
+        // Model orientation from sliders (loaded from localStorage)
+        const orient = loadOrient();
+        innerGroup.rotation.set(
+            THREE.MathUtils.degToRad(orient.x),
+            THREE.MathUtils.degToRad(orient.y),
+            THREE.MathUtils.degToRad(orient.z)
+        );
+
+        group.add(innerGroup);
         scene.add(group);
-        trackerObjects[id] = { group, targetPos: new THREE.Vector3(), targetQuat: new THREE.Quaternion(), initialized: false };
+        trackerObjects[id] = { group, innerGroup, targetPos: new THREE.Vector3(), targetQuat: new THREE.Quaternion(), initialized: false };
         return trackerObjects[id];
     }
 
@@ -258,11 +450,129 @@
     window.addEventListener('resize', onResize);
     onResize();
 
+    // ---- Model Orientation (localStorage) ----
+    const ORIENT_KEY = 'fim92_model_orient';
+
+    function loadOrient() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(ORIENT_KEY));
+            if (saved && typeof saved.x === 'number') return saved;
+        } catch {}
+        return { x: 0, y: -180, z: -90 }; // default
+    }
+
+    function applyOrientToAll() {
+        const orient = loadOrient();
+        const rx = THREE.MathUtils.degToRad(orient.x);
+        const ry = THREE.MathUtils.degToRad(orient.y);
+        const rz = THREE.MathUtils.degToRad(orient.z);
+        for (const id in trackerObjects) {
+            trackerObjects[id].innerGroup.rotation.set(rx, ry, rz);
+        }
+    }
+
+    // Init sliders from saved values
+    (function initOrientSliders() {
+        const orient = loadOrient();
+        const sx = document.getElementById('orientX');
+        const sy = document.getElementById('orientY');
+        const sz = document.getElementById('orientZ');
+        if (sx) { sx.value = orient.x; document.getElementById('orientXVal').textContent = orient.x + '°'; }
+        if (sy) { sy.value = orient.y; document.getElementById('orientYVal').textContent = orient.y + '°'; }
+        if (sz) { sz.value = orient.z; document.getElementById('orientZVal').textContent = orient.z + '°'; }
+    })();
+
+    window.updateOrient = function() {
+        const x = parseInt(document.getElementById('orientX').value);
+        const y = parseInt(document.getElementById('orientY').value);
+        const z = parseInt(document.getElementById('orientZ').value);
+        document.getElementById('orientXVal').textContent = x + '°';
+        document.getElementById('orientYVal').textContent = y + '°';
+        document.getElementById('orientZVal').textContent = z + '°';
+        // Live preview: temporarily apply without saving
+        const rx = THREE.MathUtils.degToRad(x);
+        const ry = THREE.MathUtils.degToRad(y);
+        const rz = THREE.MathUtils.degToRad(z);
+        for (const id in trackerObjects) {
+            trackerObjects[id].innerGroup.rotation.set(rx, ry, rz);
+        }
+    };
+
+    window.saveOrient = function() {
+        const x = parseInt(document.getElementById('orientX').value);
+        const y = parseInt(document.getElementById('orientY').value);
+        const z = parseInt(document.getElementById('orientZ').value);
+        localStorage.setItem(ORIENT_KEY, JSON.stringify({ x, y, z }));
+        console.log('[Orient] Saved:', { x, y, z });
+    };
+
+    window.resetOrient = function() {
+        const def = { x: 0, y: -180, z: -90 };
+        document.getElementById('orientX').value = def.x;
+        document.getElementById('orientY').value = def.y;
+        document.getElementById('orientZ').value = def.z;
+        document.getElementById('orientXVal').textContent = def.x + '°';
+        document.getElementById('orientYVal').textContent = def.y + '°';
+        document.getElementById('orientZVal').textContent = def.z + '°';
+        localStorage.setItem(ORIENT_KEY, JSON.stringify(def));
+        applyOrientToAll();
+    };
+
     // Helpers
     function quatToEulerDeg(x, y, z, w) {
         const euler = new THREE.Euler();
         euler.setFromQuaternion(new THREE.Quaternion(x, y, z, w), 'YXZ');
         return { pitch: THREE.MathUtils.radToDeg(euler.x), yaw: THREE.MathUtils.radToDeg(euler.y), roll: THREE.MathUtils.radToDeg(euler.z) };
+    }
+
+    // ---- Axis Correction (localStorage) ----
+    const AXISFIX_KEY = 'fim92_axis_fix';
+    const axisFix = (function loadAxisFix() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(AXISFIX_KEY));
+            if (saved && typeof saved.flipYaw === 'boolean') return saved;
+        } catch {}
+        return { flipYaw: false, invPitch: false, invYaw: true, invRoll: false }; // default: invYaw on
+    })();
+
+    // Init button states on load
+    (function initAxisFixButtons() {
+        const btnMap = { flipYaw: 'btnFlipYaw', invPitch: 'btnInvPitch', invYaw: 'btnInvYaw', invRoll: 'btnInvRoll' };
+        for (const key in btnMap) {
+            const btn = document.getElementById(btnMap[key]);
+            if (btn && axisFix[key]) btn.classList.add('active');
+        }
+    })();
+
+    window.toggleFix = function(key) {
+        axisFix[key] = !axisFix[key];
+        const btnMap = { flipYaw: 'btnFlipYaw', invPitch: 'btnInvPitch', invYaw: 'btnInvYaw', invRoll: 'btnInvRoll' };
+        const btn = document.getElementById(btnMap[key]);
+        if (btn) btn.classList.toggle('active', axisFix[key]);
+        localStorage.setItem(AXISFIX_KEY, JSON.stringify(axisFix));
+        console.log('[AxisFix]', JSON.stringify(axisFix));
+    };
+
+    function applyAxisCorrection(rx, ry, rz, rw) {
+        // Convert quaternion to Euler (YXZ)
+        const euler = new THREE.Euler();
+        euler.setFromQuaternion(new THREE.Quaternion(rx, ry, rz, rw), 'YXZ');
+
+        let pitch = euler.x;
+        let yaw = euler.y;
+        let roll = euler.z;
+
+        // Apply corrections
+        if (axisFix.flipYaw) yaw += Math.PI;       // Yaw +180° (前後顛倒)
+        if (axisFix.invPitch) pitch = -pitch;       // 反轉 Pitch (上下反向)
+        if (axisFix.invYaw) yaw = -yaw;             // 反轉 Yaw (左右反向)
+        if (axisFix.invRoll) roll = -roll;           // 反轉 Roll
+
+        // Convert back to quaternion
+        const correctedEuler = new THREE.Euler(pitch, yaw, roll, 'YXZ');
+        const correctedQuat = new THREE.Quaternion();
+        correctedQuat.setFromEuler(correctedEuler);
+        return correctedQuat;
     }
 
     const stabilityNames = ['InertialInit', '3DOF', '6DOF', 'Blind6DOF'];
@@ -287,7 +597,11 @@
     }
 
     function updateTrackerValues(t) {
-        const euler = quatToEulerDeg(t.rx, t.ry, t.rz, t.rw);
+        // Apply axis correction to quaternion
+        const correctedQuat = applyAxisCorrection(t.rx, t.ry, t.rz, t.rw);
+        const cq = correctedQuat;
+
+        const euler = quatToEulerDeg(cq.x, cq.y, cq.z, cq.w);
         const sColor = stabilityColors[t.stability] || '#555';
         const sPct = stabilityPercent[t.stability] || 0;
         const sName = stabilityNames[t.stability] || '?';
@@ -296,7 +610,7 @@
         const set = (id, v) => { const e = el(id); if (e) e.textContent = v; };
 
         set('px-'+t.id, t.px.toFixed(4)); set('py-'+t.id, t.py.toFixed(4)); set('pz-'+t.id, t.pz.toFixed(4));
-        set('rx-'+t.id, t.rx.toFixed(4)); set('ry-'+t.id, t.ry.toFixed(4)); set('rz-'+t.id, t.rz.toFixed(4)); set('rw-'+t.id, t.rw.toFixed(4));
+        set('rx-'+t.id, cq.x.toFixed(4)); set('ry-'+t.id, cq.y.toFixed(4)); set('rz-'+t.id, cq.z.toFixed(4)); set('rw-'+t.id, cq.w.toFixed(4));
         set('ep-'+t.id, euler.pitch.toFixed(1)+'°'); set('ey-'+t.id, euler.yaw.toFixed(1)+'°'); set('er-'+t.id, euler.roll.toFixed(1)+'°');
 
         const sf = el('sf-'+t.id), st = el('st-'+t.id);
@@ -304,9 +618,9 @@
         if (st) { st.textContent = 'S:'+t.stability+' '+sName; st.className = 'stability-text s'+t.stability; }
 
         const obj = getOrCreateTracker(t.id);
-        if (!obj.initialized) { obj.group.position.set(t.px, t.py, t.pz); obj.group.quaternion.set(t.rx, t.ry, t.rz, t.rw); obj.initialized = true; }
+        if (!obj.initialized) { obj.group.position.set(t.px, t.py, t.pz); obj.group.quaternion.copy(cq); obj.initialized = true; }
         obj.targetPos.set(t.px, t.py, t.pz);
-        obj.targetQuat.set(t.rx, t.ry, t.rz, t.rw);
+        obj.targetQuat.copy(cq);
     }
 
     function buildIODOM(io) {
@@ -330,6 +644,14 @@
         const pin7 = document.getElementById('iop-7'), val7 = document.getElementById('iov-7');
         if (pin7 && val7) { val7.textContent = io.io7out?'ON':'OFF'; pin7.className = 'io-pin output '+(io.io7out?'on':'off'); }
     }
+    
+    // Global function for buttons
+    window.sendCmd = function(key) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'keypress', key: key }));
+            console.log('Sent command:', key);
+        }
+    };
 
     // ---- WebSocket Connection ----
     let ws = null;
@@ -340,7 +662,9 @@
     let lastFpsTime = performance.now();
 
     function connectWebSocket() {
-        ws = new WebSocket('ws://localhost:8765');
+        // Support remote host: viewer_ws.html?host=192.168.1.100
+        const wsHost = new URLSearchParams(window.location.search).get('host') || window.location.hostname || 'localhost';
+        ws = new WebSocket('ws://' + wsHost + ':8765');
 
         ws.onopen = () => {
             connected = true;
@@ -364,6 +688,7 @@
                 }
 
                 document.getElementById('sceneInfo').textContent = 'S' + data.scene + ' ' + (data.sceneName || '');
+                if (data.envData) buildPillars(data.envData);
                 buildTrackerDOM(data.trackers);
                 buildIODOM(data.io);
                 for (const t of data.trackers) updateTrackerValues(t);
@@ -391,13 +716,6 @@
     let lastFrameTime = performance.now();
     let rawMode = false;
     const SMOOTHING = 0.7; // WebSocket 版本可以用更高的平滑因子
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'r' || e.key === 'R') {
-            rawMode = !rawMode;
-            console.log('Raw mode:', rawMode ? 'ON' : 'OFF');
-        }
-    });
 
     function animate() {
         requestAnimationFrame(animate);

@@ -1,986 +1,133 @@
 # FIM92 Antilatency Tracking System
 
-Antilatency Alt Tracking + Hardware Extension Interface (HW IO) C++ 應用程式，支援**多場景切換**、**多 Alt Tracker 同時追蹤**與 **Type 裝置類型識別**。
+Antilatency Alt 6-DOF Tracking + HW IO C++ 應用程式，搭配 Web 3D 即時視覺化介面。
 
 ---
 
-## 目錄
+## 快速開始
 
-1. [專案概述](#專案概述)
-2. [系統架構](#系統架構)
-3. [開發歷程](#開發歷程)
-4. [檔案結構](#檔案結構)
-5. [環境需求](#環境需求)
-6. [編譯與執行](#編譯與執行)
-7. [場景設定 (scenes.json)](#場景設定)
-8. [多場景切換設計](#多場景切換設計)
-9. [多 Alt Tracker 設計](#多-alt-tracker-設計)
-10. [Type 裝置類型識別](#type-裝置類型識別)
-11. [IO 腳位說明](#io-腳位說明)
-12. [輸出格式](#輸出格式)
-13. [Web 3D 視覺化介面](#web-3d-視覺化介面)
-14. [架構圖](#架構圖)
-15. [API 參考](#api-參考)
+1. 安裝 Python 套件：`pip install websockets`
+2. 執行 `RunWithPipe.bat`（推薦）
+3. 瀏覽器開啟 `http://localhost:8080`
+
+> 從原始碼編譯請見 [編譯說明](#編譯)。已編譯版本請至 [Releases](https://github.com/gptt-jacky/FIM92_AL/releases)。
 
 ---
 
-## 快速開始 (給使用者)
+## 功能
 
-如果您不想編譯程式碼，請直接至 [Releases](https://github.com/gptt-jacky/FIM92_AL/releases) 頁面下載最新版本的壓縮檔，解壓縮後：
-
-1. 先安裝 Python 套件：`pip install websockets`
-2. **Pipe 模式 (推薦)**：執行 `RunWithPipe.bat` - 最低延遲，零檔案 I/O
-3. **WebSocket 模式**：執行 `RunWithWebSocket.bat` - 穩定可靠
-
-## 專案概述
-
-本專案基於 Antilatency SDK 4.5.0，實現：
-- **6-DOF 動作追蹤**：透過 Antilatency Alt Tracker 取得位置 (X, Y, Z) 與旋轉 (Quaternion)
-- **8 通道數位 IO 輸入**：透過 Hardware Extension Interface 讀取 8 個腳位狀態
-- **多場景 (Environment) 切換**：透過 JSON 設定檔定義多個場景，執行時用鍵盤數字鍵即時切換
-- **多 Alt Tracker 同時運行**：自動偵測所有已連接的 Alt 設備，同時啟動追蹤
-- **Type 裝置類型識別**：透過 `nodeGetStringProperty(node, "Type")` 讀取裝置 Type，區分刺針/望遠鏡/IO 擴充板等
+- **6-DOF 追蹤**：位置 (X,Y,Z) + 旋轉 (Quaternion)，500 Hz 輸出
+- **多場景切換**：`scenes.json` 定義多場景，按 `[1]`-`[9]` 即時切換
+- **多 Tracker**：自動偵測所有 Alt 設備，同時追蹤（最多 9 個）
+- **Type 識別**：透過 AntilatencyService 設定裝置 Type（Stinger / Binoculars 等）
+- **Number 識別**：透過 AntilatencyService 設定裝置 Number，用於區分同類型裝置
+- **HW IO**：7 路 Input + 1 路 Output (IO7)，支援 AC50 等 Extension Module
+- **Web 控制**：網頁端按鈕可直接控制 C++ 程式（切換場景、IO7 開關）
+- **Web 3D 視覺化**：Three.js 即時渲染，XYZ 軸箭頭顯示追蹤器朝向
+- **環境燈柱顯示**：自動解碼 environmentData，在 3D 場景中顯示 Antilatency 燈柱位置
+- **軸向修正**：AXIS FIX 按鈕 + 模型方向滑桿，即時調整並自動保存
+- **跨電腦連線**：區域網路內其他電腦可直接用瀏覽器連線觀看
 
 ---
 
-## 系統架構
+## 系統架構總覽
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Main Application                 │
-├──────────┬──────────┬──────────┬────────────────────┤
-│ Scene    │ Multi-   │ HW IO    │ Keyboard           │
-│ Manager  │ Tracker  │ Manager  │ Input              │
-│          │ Manager  │          │                    │
-├──────────┴──────────┴──────────┴────────────────────┤
-│              Antilatency SDK 4.5.0                  │
-├──────────┬──────────┬──────────┬────────────────────┤
-│ Device   │ Alt      │ Env      │ HW Extension       │
-│ Network  │ Tracking │ Selector │ Interface          │
-└──────────┴──────────┴──────────┴────────────────────┘
-           ↕ USB / Device Network
-┌──────────────────────────────────────────────────────┐
-│          Antilatency Hardware Devices                │
-│  ┌───────────────┐ ┌───────────────┐ ┌─────────────┐ │
-│  │ Alt #1        │ │ Alt #2        │ │ Extension   │ │
-│  │ Type:Stinger  │ │ Type:Binocul. │ │ Type:ExBoard│ │
-│  └───────────────┘ └───────────────┘ └─────────────┘ │
-└──────────────────────────────────────────────────────┘
-```
-
----
-
-## 開發歷程
-
-### Phase 1：基礎追蹤 Demo (初始版本)
-
-**目標**：實現單一 Alt Tracker + 單一 HW IO 的最小可行程式
-
-- 載入 4 個 SDK 動態函式庫 (DeviceNetwork, AltTracking, EnvironmentSelector, HardwareExtensionInterface)
-- 透過命令列參數傳入 Environment Data 和 Placement Data
-- `getIdleTrackingNode()` 取得第一個閒置的 Tracking Node
-- `getIdleExtensionNode()` 取得第一個閒置的 Extension Node
-- 主迴圈 60 FPS 輪詢裝置狀態，輸出 P(x,y,z) R(qx,qy,qz,qw) S:stage IO:pinStates
-- 單一場景、單一 Tracker 的設計
-
-**限制**：
-- 只能透過命令列傳入一組 Environment，無法在執行中切換場景
-- 只追蹤第一個找到的閒置 Alt Node，無法同時使用多個 Tracker
-
-### Phase 2：多場景 + 多 Alt 重構
-
-**目標**：支援多場景切換與多 Alt 同時追蹤
-
-**變更重點**：
-
-#### 2.1 資料結構設計
-
-```cpp
-// 場景設定結構
-struct SceneConfig {
-    std::string name;            // 場景名稱
-    std::string environmentData; // Antilatency 環境序列化資料
-    std::string placementData;   // 座標系轉換資料
-};
-
-// 追蹤器實例結構 (支援多個 Alt)
-struct TrackerInstance {
-    Antilatency::DeviceNetwork::NodeHandle node; // 裝置節點
-    Antilatency::Alt::Tracking::ITrackingCotask cotask; // 追蹤任務
-    int id;          // 追蹤器編號
-    std::string type; // 裝置類型 (從 AntilatencyService 設定)
-};
-```
-
-#### 2.2 JSON 設定檔 (`scenes.json`)
-
-- 新增簡易 JSON 解析器 (`extractJsonValue`, `parseSceneConfigs`)
-- 不依賴第三方 JSON 函式庫，減少外部依賴
-- 支援 `scenes` 陣列，每個元素包含 `name`, `environmentData`, `placementData`
-
-#### 2.3 多場景切換
-
-- `switchScene()` 函式：停止所有追蹤 Cotask → 建立新 Environment → 重新啟動追蹤
-- 鍵盤快捷鍵 `[1]`-`[9]` 即時切換場景
-- 切換時重置 `prevUpdateId` 觸發裝置重新掃描
-- 向下相容：仍支援 `exe <envData> <placementData>` 單場景模式
-
-#### 2.4 多 Alt Tracker
-
-- `getIdleTrackingNode()` → `getAllIdleTrackingNodes()` — 回傳**所有**閒置節點
-- 使用 `std::vector<TrackerInstance>` 管理多個追蹤器
-- 自動偵測新連接的 Alt 設備，分配遞增編號
-- 已斷線的 Tracker 自動從列表移除 (`isTaskFinished()` 檢查)
-
-#### 2.5 鍵盤控制 (Windows)
-
-- `getKeyPress()` 使用 `_kbhit()` / `_getch()` 非阻塞讀取
-- `[1]`-`[9]`：切換場景
-- `[L]`：列出所有場景
-- `[Q]`：退出程式
-
-#### 2.6 輸出格式更新
-
-- 增加場景指示器 `[S1]`
-- 每個 Tracker 以 `T1:`, `T2:` 前綴區分
-- 行寬從 130 擴展到 160 以容納多 Tracker 資料
-
-### Phase 3：Type 裝置類型識別
-
-**目標**：透過 Antilatency 的 Type 屬性識別各個硬體裝置的用途（例如區分「刺針飛彈」與「望遠鏡」）
-
-*(詳見下方 [Type 裝置類型識別](#type-裝置類型識別) 章節)*
-
-### Phase 4：Web 視覺化效能優化
-
-**目標**：解決 3D 視覺化介面的卡頓問題，實現流暢的動態追蹤顯示
-
-**問題分析**：
-原本的實作有多個效能瓶頸：
-
-1. **檔案讀寫競爭**：C++ 直接寫入 `tracking_data.json`，Python server 同時讀取時可能讀到不完整的 JSON
-2. **插值方式不當**：使用 frame-based lerp，物體會「衝→停→衝→停」
-3. **Server 效能**：Python 單線程 HTTP server，每次請求都從磁碟讀取
-4. **像素比過高**：高 DPI 螢幕渲染負擔過重
-
-**解決方案**：
-
-#### 4.1 C++ 端：原子檔案寫入
-
-```cpp
-// 先寫臨時檔，再原子重命名
-std::ofstream jsonFile("tracking_data.json.tmp");
-jsonFile << js.str();
-jsonFile.close();
-std::filesystem::rename("tracking_data.json.tmp", "tracking_data.json");
-```
-
-#### 4.2 Python Server：多線程處理
-
-```python
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-```
-
-#### 4.3 Web 端：指數平滑 + 速度預測
-
-```javascript
-// 指數平滑：物件平滑追蹤目標
-const smoothFactor = 1 - Math.pow(1 - SMOOTHING, deltaTime);
-obj.group.position.lerp(predictedPos, smoothFactor);
-
-// 速度預測：外推位置減少延遲感
-predictedPos.copy(targetPos);
-predictedPos.addScaledVector(velocity, timeSinceData * PREDICTION_FACTOR);
-```
-
-#### 4.4 渲染優化
-
-```javascript
-// 限制像素比，避免高 DPI 螢幕過度渲染
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-// 啟用高效能模式
-new THREE.WebGLRenderer({ powerPreference: 'high-performance' });
-```
-
-#### 4.5 最終效能數據
-
-| 項目 | 數值 |
-|------|------|
-| C++ 輪詢/寫入頻率 | **500 Hz (2ms)** |
-| Web 輪詢頻率 (HTTP) | ~66 Hz (15ms) |
-| WebSocket 推送頻率 | ~500 Hz (即時) |
-| 3D 渲染 FPS | 60-180 Hz (自動) |
-| 平滑因子 | 0.6-0.7 |
-| 外推時間 | 0.005f (5ms) |
-
-**成效**：
-- 3D 物體移動從「跳躍式」變成「持續滑動」
-- IO 板機反應延遲 < 10ms
-- 可達 Antilatency 標榜的 2ms 低延遲追蹤
-
-**背景**：
-Antilatency 裝置可以在 AntilatencyService 軟體中設定 Type 屬性，寫入硬體記憶體。程式端可透過 `network.nodeGetStringProperty(node, "Type")` 讀取。
-
-#### 3.1 Type 設定流程 (硬體端)
-
-1. 執行 **AntilatencyService**
-2. 進入 **Device Network** 分頁
-3. 找到目標裝置節點
-4. 設定 **Type** 名稱（例如 `Stinger`、`Binoculars`、`ExBoard`）
-5. Type 寫入硬體記憶體，換電腦也會保留
-
-#### 3.2 程式端實作
-
-```cpp
-// 讀取裝置 Type (返回空字串表示未設定)
-static std::string getNodeType(
-    Antilatency::DeviceNetwork::INetwork network,
-    Antilatency::DeviceNetwork::NodeHandle node)
-{
-    try {
-        return network.nodeGetStringProperty(node, "Type");
-    } catch (...) {
-        return "";
-    }
-}
-```
-
-#### 3.3 變更內容
-
-- `TrackerInstance` 新增 `type` 欄位，儲存追蹤器的 Type
-- 新增 `getNodeType()` 輔助函式，安全地讀取 Type（未設定時回傳空字串）
-- Alt Tracker 連接時讀取並記錄 Type，連接訊息顯示 `Alt Tracker #1 [Stinger] connected!`
-- HW Extension 連接時讀取並記錄 Type，連接訊息顯示 `Extension Module [ExBoard] connected!`
-- 即時輸出加入 Type 標示：`T1[Stinger]:P(...)` 和 `IO[ExBoard]:10101010`
-
-#### 3.4 應用範例
-
-在 AntilatencyService 中設定好 Type 後，程式會自動識別：
-
-| 裝置 | Type | 程式中的顯示 |
-|------|------|-------------|
-| 刺針飛彈上的 Alt Tracker | `Stinger` | `T1[Stinger]:P(...) R(...) S:2` |
-| 望遠鏡上的 Alt Tracker | `Binoculars` | `T2[Binoculars]:P(...) R(...) S:2` |
-| IO 擴充板 | `ExBoard` | `IO[ExBoard]:10101010` |
-| 未設定 Type 的裝置 | (空) | `T3:P(...) R(...) S:2` |
-
----
-
-## 檔案結構
-
-```
-FIM92_C++/
-├── TrackingMinimalDemoCpp.cpp    # 主程式 (多場景 + 多Alt + Type識別)
-├── CMakeLists.txt                # CMake 編譯設定
-├── scenes.json                   # 場景設定檔 (JSON)
-├── RunTracking.bat               # Windows 快速執行腳本 (多場景模式)
-├── RunTracking_legacy.bat        # Windows 快速執行腳本 (舊模式，單場景)
-├── RunWithWebSocket.bat          # WebSocket 模式 (即時推送)
-├── RunWithPipe.bat               # Pipe 模式 (零檔案 I/O，最低延遲) ★推薦
-├── README.md                     # 本文件
-├── web/                          # Web 3D 視覺化介面
-│   ├── viewer_ws.html            # 3D 視覺化頁面 (WebSocket)
-│   ├── server_ws.py              # WebSocket 伺服器 (檔案監聽)
-│   └── pipe_server.py            # Pipe WebSocket 伺服器 (stdin 直傳)
-├── AntilatencySdk/               # Antilatency SDK 4.5.0
-│   ├── Api/                      # C++ Header Files (30 個)
-│   │   ├── Antilatency.Alt.Tracking.h
-│   │   ├── Antilatency.Alt.Environment.Selector.h
-│   │   ├── Antilatency.Alt.Environment.Pillars.h
-│   │   ├── Antilatency.Alt.Environment.Rectangle.h
-│   │   ├── Antilatency.Alt.Environment.HorizontalGrid.h
-│   │   ├── Antilatency.Alt.Environment.Sides.h
-│   │   ├── Antilatency.Alt.Environment.Arbitrary2D.h
-│   │   ├── Antilatency.Alt.Environment.AdditionalMarkers.h
-│   │   ├── Antilatency.DeviceNetwork.h
-│   │   ├── Antilatency.HardwareExtensionInterface.h
-│   │   ├── Antilatency.HardwareExtensionInterface.Interop.h
-│   │   └── ... (其他)
-│   └── Bin/                      # 預編譯二進位檔
-│       ├── WindowsDesktop/x64/   # Windows 64-bit DLLs
-│       ├── WindowsDesktop/x86/   # Windows 32-bit DLLs
-│       └── Linux/                # Linux .so 檔案
-└── build/                        # CMake 編譯輸出
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         啟動方式與資料流                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  RunTracking.bat (純 C++)                                               │
+│  ┌──────────────────────────┐                                           │
+│  │ TrackingMinimalDemo.exe  │─── Console 文字輸出                       │
+│  │ (無 --json)              │─── build/Release/tracking_data.json       │
+│  └──────────────────────────┘    (每 ~2ms 原子覆寫，軟體組可讀取此檔案)  │
+│                                                                         │
+│  RunWithPipe.bat (推薦)                                                  │
+│  ┌──────────────────────────┐   stdout    ┌─────────────────┐           │
+│  │ TrackingMinimalDemo.exe  │────pipe────►│ pipe_server.py  │           │
+│  │ (--json 模式)            │             │ HTTP :8080      │           │
+│  └──────────────────────────┘             │ WS   :8765      │──► 瀏覽器 │
+│                                           └─────────────────┘           │
+│  RunWithWebSocket.bat (備用)                                             │
+│  ┌──────────────────────────┐   file      ┌─────────────────┐           │
+│  │ TrackingMinimalDemo.exe  │───write────►│ server_ws.py    │           │
+│  │ (無 --json)              │             │ HTTP :8080      │           │
+│  └──────────────────────────┘             │ WS   :8765      │──► 瀏覽器 │
+│                                           └─────────────────┘           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                         硬體層                                          │
+│  ┌───────────────────┐  ┌───────────────────┐  ┌──────────────────────┐ │
+│  │ Alt Tracker #1    │  │ Alt Tracker #2    │  │ Extension Module    │ │
+│  │ Type: Stinger     │  │ Type: Binoculars  │  │ Type: AC50          │ │
+│  │ Number: 1         │  │ Number: 2         │  │ 7 Input + IO7 Out   │ │
+│  └────────┬──────────┘  └────────┬──────────┘  └────────┬─────────────┘ │
+│           └──────────────────────┴──────────────────────┘               │
+│                              USB / Device Network                       │
+│                         Antilatency SDK 4.5.0                           │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 環境需求
+## 通訊模式
 
-- **OS**: Windows 10/11 (64-bit) 或 Linux (x86_64, aarch64, armv7l)
-- **編譯器**: C++17 相容 (MSVC 2019+, GCC 7+, Clang 5+)
-- **CMake**: 3.10+
-- **硬體**: Antilatency Alt Tracker + Extension Module (USB 連線)
+| 模式 | 啟動 | Data/s | 延遲 | 說明 |
+|------|------|--------|------|------|
+| **Pipe** (推薦) | `RunWithPipe.bat` | ~64 | ~2ms | C++ stdout → 管道 → Python → WebSocket |
+| WebSocket | `RunWithWebSocket.bat` | ~20-28 | ~15-50ms | C++ 寫檔 → Python 讀檔 → WebSocket |
+| 純 C++ | `RunTracking.bat` | 500 (檔案) | ~2ms | C++ 直接寫入 `tracking_data.json` + Console 顯示 |
 
----
-
-## 編譯與執行
-
-> **注意**：從 GitHub 下載原始碼後，必須先執行以下編譯步驟產生執行檔，`RunWithPipe.bat` 或 `RunWithWebSocket.bat` 才能正常運作。
-
-### Windows
-
-```bash
-# 建立 build 目錄並編譯
-cmake -B build -A x64
-cmake --build build --config Release
-
-# 方法一：使用設定檔 (推薦)
-cd build/Release
-TrackingMinimalDemo.exe "../../scenes.json"
-
-# 方法二：使用 RunTracking.bat
-RunTracking.bat
-
-# 方法三：舊模式 (單一場景)
-TrackingMinimalDemo.exe "<environmentData>" "<placementData>"
-```
-
-### Linux
-
-```bash
-cmake -B build
-cmake --build build
-cd build
-./TrackingMinimalDemo "../scenes.json"
-```
+> Pipe 模式零檔案 I/O，效能遠優於 WS 檔案模式。WS 模式受限於 Windows NTFS 檔案時間戳精度（~15ms），僅作備用方案。
 
 ---
 
-## 場景設定
+## 軟體整合指南（給軟體組）
 
-`scenes.json` 格式：
+不論使用哪種啟動方式，軟體組都可以透過以下介面取得追蹤資料：
 
-```json
-{
-    "scenes": [
-        {
-            "name": "場景名稱",
-            "environmentData": "AntilatencyAltEnvironmentPillars~...",
-            "placementData": "AAAAAA..."
-        },
-        {
-            "name": "另一個場景",
-            "environmentData": "AntilatencyAltEnvironmentRectangle~...",
-            "placementData": "AAAAAA..."
-        }
-    ]
-}
-```
+### 方式一：讀取 JSON 檔案（RunTracking.bat）
 
-### 目前場地設定 (scenes.json)
-
-```json
-{
-    "scenes": [
-        {
-            "name": "AL_TEST_3.5M",
-            "environmentData": "AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        },
-        {
-            "name": "AL_TEST_2M",
-            "environmentData": "AntilatencyAltEnvironmentPillars~AgQAAIC_AAAAAAAAAAACAAAAAAAAgD8AAIA_AAAAAAAAAAABAAAAAAAAgD8bL30_AAAAAAAAAMACAAAAAAAAgD9zaIG_AAAAAAAAAMAAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        }
-    ]
-}
-```
-
-| 按鍵 | 場地名稱 | 說明 |
-|------|----------|------|
-| `1` | AL_TEST_3.5M | 3.5 公尺測試場地 (預設) |
-| `2` | AL_TEST_2M | 2 公尺測試場地 |
-
-### 欄位說明
-
-| 欄位 | 必填 | 說明 |
-|------|------|------|
-| `name` | 否 | 場景顯示名稱，未填則自動編號 |
-| `environmentData` | 是 | Antilatency 環境序列化字串，從 AntilatencyService 匯出 |
-| `placementData` | 否 | Placement 轉換資料，未填則使用預設值 (原點) |
-
-### 如何取得 Environment Data
-
-**方法一：從 AntilatencyService 軟體匯出**
-
-1. 開啟 **AntilatencyService** 軟體
-2. 設定好場景的標記點 (Pillars / Rectangle / Grid 等)
-3. 點擊 **Export Environment** → 複製序列化字串
-4. 貼到 `scenes.json` 的 `environmentData` 欄位
-
-**方法二：從 Antilatency 環境 URL 提取**
-
-Antilatency 環境 URL 格式如下：
-```
-http://www.antilatency.com/antilatencyservice/environment?data=<環境資料>&name=<名稱>
-```
-
-範例 URL：
-```
-http://www.antilatency.com/antilatencyservice/environment?data=AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A&name=AL_TEST_3.5M
-```
-
-提取方式：
-1. 找到 `data=` 後面的值，到 `&name=` 之前的字串
-2. 這就是 `environmentData`
-3. `name=` 後面的值就是場景名稱
-
-以上範例提取結果：
-- **name**: `AL_TEST_3.5M`
-- **environmentData**: `AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A`
-
-### 支援的環境類型
-
-| 類型 | 說明 | 適用場景 |
-|------|------|----------|
-| Pillars | 直立式發光柱陣列 | 大型空間、VR 場域 |
-| Rectangle | 矩形邊界標記 | 小型桌面追蹤 |
-| HorizontalGrid | 地面/牆面格線 | 工業定位 |
-| Sides | 側牆標記 | 走廊式空間 |
-| Arbitrary2D | 自訂 2D 排列 | 非規則空間 |
-
----
-
-## 多場景切換設計
-
-### 如何更改場地 / 切換場景
-
-**步驟一：準備各場地的 Environment Data**
-
-每個物理場地都有不同的標記配置，需要各自匯出：
-
-1. 在場地 A 架設好 Antilatency 標記 (Pillars/Rectangle 等)
-2. 開啟 **AntilatencyService** → 校正場地 A → **Export Environment** → 複製字串
-3. 到場地 B 重複上述步驟，取得場地 B 的 Environment Data
-4. 以此類推
-
-**步驟二：寫入 `scenes.json`**
-
-```json
-{
-    "scenes": [
-        {
-            "name": "TrainingRoom_A",
-            "environmentData": "AntilatencyAltEnvironmentPillars~<場地A的資料>",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        },
-        {
-            "name": "TrainingRoom_B",
-            "environmentData": "AntilatencyAltEnvironmentPillars~<場地B的資料>",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        },
-        {
-            "name": "Outdoor_Field",
-            "environmentData": "AntilatencyAltEnvironmentRectangle~<戶外場地資料>",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        }
-    ]
-}
-```
-
-**步驟三：執行時即時切換**
+執行 `RunTracking.bat` 後，C++ 程式會以 **~500Hz** 頻率持續覆寫以下檔案：
 
 ```
-程式啟動後：
-  按 [1] → 切到 TrainingRoom_A
-  按 [2] → 切到 TrainingRoom_B
-  按 [3] → 切到 Outdoor_Field
-  按 [L] → 列出所有場景，標示目前使用中的場景
+build/Release/tracking_data.json
 ```
 
-### 運作流程
+軟體組只需輪詢讀取此檔案即可。注意：受 Windows NTFS 時間戳精度限制，實際可偵測的檔案變化頻率約 **20-60Hz**。
+
+C++ 端使用 atomic write（先寫 `.tmp` 再 `rename`）避免讀到寫一半的檔案。
+
+### 方式二：WebSocket 即時訂閱（RunWithPipe.bat，推薦）
+
+執行 `RunWithPipe.bat` 後，連接 WebSocket 即可即時收到 JSON 推送：
 
 ```
-使用者按下 [2]
-    │
-    ▼
-switchScene(1, ...)
-    │
-    ├── 停止所有追蹤 Cotask
-    │   for (auto& t : trackers) t.cotask = nullptr;
-    │   trackers.clear();
-    │
-    ├── 建立新 Environment
-    │   environmentSelectorLibrary.createEnvironment(scene.environmentData)
-    │
-    ├── 更新 Placement
-    │   altTrackingLibrary.createPlacement(scene.placementData)
-    │
-    └── 重置 prevUpdateId = 0
-        (觸發主迴圈重新掃描裝置，自動連接所有 Tracker)
+ws://localhost:8765
 ```
 
-### 注意事項
+任何語言只要支援 WebSocket client 即可接收（Python / C# / C++ / JavaScript 等）。
 
-- 切換場景時會**暫時中斷所有追蹤**，因為不同場景的標記配置不同
-- 切換後 Alt Tracker 需要重新定位，Stability 會從 InertialDataInitialization 重新開始
-- 若新場景的 Environment Data 無效，會保持在當前場景
-- 不同場地可以混用不同環境類型（場地 A 用 Pillars、場地 B 用 Rectangle）
+### JSON 資料格式
 
----
-
-## 多 Alt Tracker 設計
-
-### 原始設計 vs 新設計
-
-```
-原始 (單 Tracker):                新設計 (多 Tracker):
-┌─────────────────┐              ┌─────────────────────────┐
-│ getIdleTracking │              │ getAllIdleTrackingNodes  │
-│ Node()          │──→ 1 node    │ ()                      │──→ N nodes
-└─────────────────┘              └─────────────────────────┘
-         │                                  │
-         ▼                                  ▼
-┌─────────────────┐              ┌─────────────────────────┐
-│ altTrackingCo-  │              │ for each idle node:     │
-│ task (single)   │              │   trackers.push_back()  │
-└─────────────────┘              │ → vector<TrackerInst>   │
-                                 └─────────────────────────┘
-```
-
-### 自動管理流程
-
-1. **偵測**：每次 `network.getUpdateId()` 變化時，掃描所有支援的節點
-2. **清理**：移除已斷線 (`isTaskFinished()`) 的 Tracker 實例
-3. **過濾**：跳過已在使用中的節點 (避免重複啟動)
-4. **啟動**：為每個新的閒置節點建立 `TrackerInstance`，分配遞增 ID + 讀取 Type
-5. **輸出**：以 `T1[Type]:`, `T2[Type]:` 前綴區分各 Tracker 的資料
-
-### 範例輸出 (2 個 Alt Tracker + IO，含 Type)
-
-```
-[S1] T1[Stinger]:P( 1.2345, 0.5678, 2.1111) R( 0.0000, 0.0000, 0.7071, 0.7071) S:2  T2[Binoculars]:P(-0.3210, 0.8888, 1.5000) R( 0.1000, 0.2000, 0.3000, 0.9000) S:2  IO[ExBoard]:10101010
-```
-
----
-
-## Type 裝置類型識別
-
-### 什麼是 Type？
-
-Antilatency 每個硬體節點都可以設定一個自訂的 Type 屬性。程式端透過 `network.nodeGetStringProperty(node, "Type")` 即可讀取，用來區分不同用途的裝置。
-
-### 設定方法
-
-1. 開啟 **AntilatencyService**
-2. 進入 **Device Network** 分頁
-3. 找到目標裝置節點
-4. 設定 **Type** 名稱，例如：
-   - `Stinger` — 刺針飛彈上的 Alt Tracker
-   - `Binoculars` — 望遠鏡上的 Alt Tracker
-   - `ExBoard` — IO 擴充板
-
-### 程式行為
-
-| 事件 | 有 Type | 無 Type |
-|------|---------|---------|
-| Alt Tracker 連接 | `Alt Tracker #1 [Stinger] connected!` | `Alt Tracker #1 connected!` |
-| Extension 連接 | `Extension Module [ExBoard] connected!` | `Extension Module connected!` |
-| 即時輸出 | `T1[Stinger]:P(...)` | `T1:P(...)` |
-| IO 輸出 | `IO[ExBoard]:10101010` | `IO:10101010` |
-
-### 用途
-
-- **區分多個追蹤器**：同時接 2 個以上 Alt 時，靠 Type 知道哪個是刺針、哪個是望遠鏡
-- **識別 IO 擴充板**：當有多個擴充板時，靠 Type 區分用途
-- **記錄與除錯**：輸出日誌中可明確看到是哪個裝置的資料
-
----
-
-## IO 腳位說明
-
-### Input 腳位 (7 個)
-
-使用 Active Low 邏輯：
-
-| 腳位 | 索引 | 方向 | Low (按下) | High (放開) |
-|------|------|------|-----------|-------------|
-| IO1  | 0    | Input | 1         | 0           |
-| IO2  | 1    | Input | 1         | 0           |
-| IOA3 | 2    | Input | 1         | 0           |
-| IOA4 | 3    | Input | 1         | 0           |
-| IO5  | 4    | Input | 1         | 0           |
-| IO6  | 5    | Input | 1         | 0           |
-| IO8  | 6    | Input | 1         | 0           |
-
-### Output 腳位 (1 個)
-
-| 腳位 | 方向 | 控制方式 | High (ON) | Low (OFF) |
-|------|------|---------|----------|------------|
-| IO7  | **Output** | 按鍵 `[O]` 切換 | 輸出高電位 | 輸出低電位 (預設) |
-
-- 啟動時 IO7 預設為 **Low (OFF)**
-- 按 `[O]` 鍵可即時切換 ON/OFF
-- 可用於控制繼電器、LED、蜂鳴器等外部裝置
-- 程式碼中使用 `hwCotask.createOutputPin()` 和 `outputPin.setState()` 控制
-
----
-
-## 輸出格式
-
-```
-[S<場景編號>] T<ID>[<Type>]:P(x,y,z) R(qx,qy,qz,qw) S:<穩定度>  IO[<Type>]:<7位元> IO7out:<ON/OFF>
-```
-
-### 實際測試範例
-
-以下為未裝立柱時的實測輸出（IO7 改為 Output 前）：
-
-```
-[S1] T1:P(-0.0000, 1.6800, 0.0000) R(-0.6286, 0.0094,-0.3238, 0.7071) S:1  IO[AC50]:00010000
-```
-
-IO7 改為 Output 後的輸出格式：
-
-```
-[S1] T1:P(-0.0000, 1.6800, 0.0000) R(-0.6286, 0.0094,-0.3238, 0.7071) S:1  IO[AC50]:0001000 IO7out:OFF
-```
-
-#### 逐欄解析
-
-| 欄位 | 值 | 意義 |
-|------|-----|------|
-| `[S1]` | 場景 1 | 目前使用 AL_TEST_2M 場景 |
-| `T1:` | Tracker #1 | Alt Tracker（未設定 Type，若有設定會顯示如 `T1[Stinger]:`） |
-| `P(-0.0000, 1.6800, 0.0000)` | X=0m, Y=1.68m, Z=0m | 位置座標（Y 軸 = 高度），單位：公尺 |
-| `R(-0.6286, 0.0094, -0.3238, 0.7071)` | 四元數 (qx, qy, qz, qw) | 裝置目前的朝向/旋轉 |
-| `S:1` | 3DOF | 只有旋轉追蹤，沒有位置追蹤（因為沒有立柱） |
-| `IO[AC50]` | Type = AC50 | IO 擴充板，Type 已從硬體讀取成功 |
-| `00010000` | IOA4 = 1，其餘 = 0 | 第 4 腳 (IOA4) 被觸發，其餘放開 |
-
-#### IO 腳位對照 (`00010000`)
-
-```
-IO1=0  IO2=0  IOA3=0  IOA4=1  IO5=0  IO6=0  IO7=0  IO8=0
-                        ↑
-                     此腳位被觸發 (Active Low)
-```
-
-### 追蹤穩定度 (Stability Stage) 詳細說明
-
-| 階段 | S 值 | 名稱 | 說明 | 資料可用性 |
-|------|------|------|------|-----------|
-| 初始化 | `S:0` | InertialDataInitialization | IMU 正在初始化 | 位置/旋轉均不可用 |
-| 3DOF | `S:1` | Tracking3Dof | 僅 IMU 旋轉追蹤 | **旋轉可用，位置不可用** |
-| **6DOF** | **`S:2`** | **Tracking6Dof** | **立柱光學定位 + IMU** | **位置 + 旋轉均可用** |
-| 盲區 6DOF | `S:3` | TrackingBlind6Dof | 暫時遮擋，靠慣性預測 | 位置靠預測，短時間內可用 |
-
-**重要**：`S:1`（3DOF）時 `P(x,y,z)` 位置資料不會真正移動，**必須架設立柱達到 `S:2`（6DOF）後，位置資料才準確可用**。
-
-### 6DOF 資料說明
-
-本系統提供完整的 **6 自由度 (6DOF)** 追蹤：
-
-```
-6DOF = 3 軸平移 + 3 軸旋轉
-
-平移 P(x, y, z):              旋轉 R(qx, qy, qz, qw):
-  x = 左右移動 (公尺)           四元數表示 3 軸旋轉
-  y = 上下移動 / 高度 (公尺)     可轉換為 Euler 角度:
-  z = 前後移動 (公尺)             Yaw   (偏航/左右轉)
-                                  Pitch (俯仰/上下看)
-                                  Roll  (翻滾/歪頭)
-```
-
-> **關於 "9 軸"**：9 軸是指 IMU 感測器的硬體規格（3 軸加速度計 + 3 軸陀螺儀 + 3 軸磁力計），
-> 但最終輸出仍然是 6DOF（3 平移 + 3 旋轉），這已經是空間中的全部自由度。
-
-### 輸出資料頻率
-
-本系統採用 **本地有線 USB 連接**，這是最穩定可靠的資料傳輸方式。
-
-#### Antilatency 硬體能力
-
-| 元件 | 內部更新率 | 說明 |
-|------|-----------|------|
-| **Alt Tracker IMU** | 2000 Hz | 加速度計 + 陀螺儀融合 |
-| **光學追蹤** | 依標記可見度 | 紅外線標記定位 |
-| **IO Extension Module** | 200 Hz | Pin 狀態每 5ms 更新一次 |
-
-#### 程式設定頻率
-
-| 環節 | 頻率 | 說明 |
-|------|------|------|
-| **C++ 主迴圈** | **500 Hz** | 每 2ms 輪詢一次 (`sleep_for(2ms)`) |
-| **外推時間** | 5ms | `getExtrapolatedState(placement, 0.005f)` |
-| **3D 渲染** | 60-180 Hz | 依螢幕刷新率，配合平滑插值 |
-
-#### 外推時間 (Extrapolation) 說明
-
-```cpp
-// SDK 函式：取得外推後的追蹤狀態
-getExtrapolatedState(placement, deltaTime)
-//                             ↑ 向前預測多少秒
-
-// 0.03f = 30ms → 預測太遠，物體會「衝過頭」再拉回來
-// 0.005f = 5ms → 幾乎即時，減少預測誤差 (目前設定)
-```
-
-#### 為什麼使用本地有線連接？
-
-- **延遲最低**：USB 直連，可達 Antilatency 標榜的 **2ms 低延遲**
-- **頻寬充足**：本地傳輸速度遠超網路
-- **穩定性高**：無封包遺失、無網路抖動
-- **資料完整**：不需要壓縮、不需要協議轉換
-
-> ⚠️ **注意**：若改為無線傳輸 (WiFi/4G)，會引入 10-100ms+ 的額外延遲，且受網路品質影響。本地有線方案是追蹤應用的最佳選擇。
-
-#### 如何調整輪詢頻率？
-
-修改 `TrackingMinimalDemoCpp.cpp` 主迴圈底部的 sleep 時間：
-
-```cpp
-// 目前設定：500 Hz (高速追蹤)
-std::this_thread::sleep_for(std::chrono::milliseconds(2));
-
-// 200 Hz (平衡)
-std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
-// 100 Hz (省 CPU)
-std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-// 60 Hz (配合 60fps 螢幕)
-std::this_thread::sleep_for(std::chrono::milliseconds(16));
-```
-
-修改後需重新編譯：
-```bash
-cmake --build build --config Release
-```
-
-### 給網站使用的注意事項
-
-| 項目 | 說明 |
-|------|------|
-| 資料完整性 | `P` + `R` + `S` 包含完整的空間定位資訊，足夠做定位應用 |
-| 穩定度要求 | 必須達到 **S:2 (6DOF)** 才能取得準確的位置資料 |
-| 更新頻率 | C++ 500 Hz 輸出 + Web 平滑插值 |
-| 座標系 | 右手座標系，Y 軸朝上 |
-| 通訊模式 | WebSocket / **Pipe (推薦)** 兩種可選 |
-
-### 欄位快速參考
-
-| 欄位 | 說明 | 範例 |
-|------|------|------|
-| `[S1]` | 當前場景編號 | S1 = 第一個場景 |
-| `T1[Stinger]:` | 追蹤器 ID + Type | T1 = 第一個 Alt，Type = Stinger |
-| `T2:` | 追蹤器 ID (未設定 Type) | T2 = 第二個 Alt，無 Type |
-| `P(x,y,z)` | 位置 (公尺) | P(-0.0000, 1.6800, 0.0000) |
-| `R(qx,qy,qz,qw)` | 旋轉 (四元數) | R(-0.6286, 0.0094, -0.3238, 0.7071) |
-| `S:N` | 穩定度階段 | S:2 = 6DOF (位置+旋轉可用) |
-| `IO[AC50]:XXXXXXX` | 7 個 Input 腳位 + Type | IO[AC50]:0001000 |
-| `IO7out:OFF` | IO7 Output 狀態 | OFF=High(關), ON=Low(開) |
-
----
-
-## Web 3D 視覺化介面
-
-本專案包含一個即時 3D 視覺化網頁，可在瀏覽器中顯示追蹤資料。
-
-### 功能
-
-- **3D 物件顯示**：使用 Three.js 即時渲染追蹤器的位置與旋轉
-- **速度預測平滑化**：採用指數平滑 + 速度預測，確保任何螢幕更新率下都能流暢顯示
-- **Position 顯示**：X, Y, Z 座標 (公尺)
-- **Rotation 顯示**：Quaternion (x, y, z, w) + 自動換算 Euler 角度 (Pitch, Yaw, Roll)
-- **Stability 狀態**：S:0~S:3 進度條與文字顯示
-- **IO 腳位面板**：8 個腳位即時狀態 (7 input + IO7 output)
-- **多 Tracker 支援**：每個 Tracker 以不同顏色顯示
-- **OrbitControls**：可用滑鼠旋轉/縮放/平移 3D 視角
-
-### 3D 視覺化平滑演算法
-
-為了讓 3D 物件移動流暢而非「跳躍式」更新，採用以下技術：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    資料流與平滑化流程                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  C++ (500Hz)     WebSocket/Pipe (即時)    Render (60-180Hz) │
-│  ┌─────────┐         ┌─────────┐          ┌─────────────┐   │
-│  │ 追蹤資料 │ ──JSON──▶│ 目標位置 │ ──平滑──▶│ 3D 物件位置 │   │
-│  └─────────┘         │ 目標旋轉 │          │ (視覺呈現)  │   │
-│                      │ 速度向量 │          └─────────────┘   │
-│                      └─────────┘                            │
-│                           │                                 │
-│                           ▼                                 │
-│                   ┌───────────────┐                         │
-│                   │ 指數平滑插值  │                         │
-│                   └───────────────┘                         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**核心演算法參數**：
-
-| 參數 | 值 | 說明 |
-|------|-----|------|
-| `SMOOTHING` | 0.6-0.7 | 指數平滑因子，越高反應越快 |
-| 資料更新 | ~2ms (Pipe/WS) | WebSocket 或 Pipe 模式下即時推送 |
-| 資料輪詢 | 15ms (HTTP) | HTTP 模式每 15ms 獲取一次新資料 |
-| 渲染迴圈 | requestAnimationFrame | 自動匹配螢幕刷新率 |
-
-**平滑化原理**：
-
-1. **指數平滑 (Exponential Smoothing)**：每個渲染幀，物件位置以指數曲線趨近目標，而非瞬間跳躍
-2. **速度預測 (Velocity Prediction)**：根據前後兩次資料計算速度向量，在等待下一筆資料時外推位置
-3. **幀率無關 (Frame-rate Independent)**：使用 `deltaTime` 正規化，確保不同螢幕刷新率下動作速度一致
-
-```javascript
-// 指數平滑：物件平滑追蹤目標
-const smoothFactor = 1 - Math.pow(1 - SMOOTHING, deltaTime);
-obj.group.position.lerp(predictedPos, smoothFactor);
-
-// 速度預測：外推位置減少延遲感
-predictedPos.copy(targetPos);
-predictedPos.addScaledVector(velocity, timeSinceData * PREDICTION_FACTOR);
-```
-
-### 兩種通訊模式
-
-本專案提供兩種 C++ 到 Web 的資料傳輸模式：
-
-| 模式 | 啟動腳本 | 延遲 | 說明 |
-|------|----------|------|------|
-| **WebSocket** | `RunWithWebSocket.bat` | ~5ms | C++ 寫檔 → Python 監聽 → WS 推送 |
-| **Pipe** ★推薦 | `RunWithPipe.bat` | **~2ms** | C++ stdout → Python stdin → WS 廣播 |
-
-#### 模式一：WebSocket (RunWithWebSocket.bat)
-
-WebSocket 即時推送，減少 HTTP 請求開銷。
-
-```
-C++ TrackingMinimalDemo.exe
-         │
-         └── 每 2ms 寫入 tracking_data.json
-                    │
-                    └── web/server_ws.py (1ms 監聽檔案變化)
-                              │
-                              └── WebSocket 廣播到所有連線的 viewer_ws.html
-```
-
-**適用場景**：需要較低延遲、多個瀏覽器同時觀看
-
-#### 模式二：Pipe 管道 (RunWithPipe.bat) ★推薦
-
-**零檔案 I/O**，C++ 直接輸出到 Python stdin，完全繞過磁碟。
-
-```
-C++ TrackingMinimalDemo.exe --json
-         │
-         └── stdout (JSON 每行一筆)
-                │
-                └── | (管道) ──► python pipe_server.py
-                                        │
-                                        └── stdin 讀取 → WebSocket 廣播
-```
-
-**適用場景**：需要最低延遲、追求流暢度
-
-**使用方式**：
-
-```bat
-# 一鍵啟動 (自動開啟瀏覽器)
-RunWithPipe.bat
-
-# 或手動執行
-cd build\Release
-TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "..\..\web\pipe_server.py"
-```
-
-#### --json 命令列參數
-
-C++ 程式支援 `--json` (或 `-j`) 參數，啟用 JSON 輸出模式：
-
-```bash
-# 標準模式：Console 輸出 + 檔案寫入
-TrackingMinimalDemo.exe "scenes.json"
-
-# JSON 模式：僅 stdout 輸出 JSON (供 pipe 使用)
-TrackingMinimalDemo.exe --json "scenes.json"
-```
-
-JSON 模式下：
-- 不輸出任何除錯訊息到 Console
-- 每 2ms 輸出一行完整 JSON 到 stdout
-- 不寫入 `tracking_data.json` 檔案
-- 配合 pipe 使用可達到最低延遲
-
-### 使用方式
-
-**方法一：Pipe 模式 (推薦，最低延遲)**
-
-```bat
-RunWithPipe.bat
-```
-
-C++ 直接輸出到 Python，完全不經過檔案系統。
-
-**方法二：WebSocket 模式**
-
-```bat
-RunWithWebSocket.bat
-```
-
-C++ 寫檔，Python WebSocket server 監聽並推送。
-
-**方法三：手動啟動**
-
-1. 先啟動 Tracker 程式（會產生 `tracking_data.json`）：
-   ```bat
-   RunTracking.bat
-   ```
-
-2. 另開 terminal 啟動 WebSocket Server：
-   ```bat
-   cd web
-   python server_ws.py
-   ```
-
-3. 開啟瀏覽器到 `http://localhost:8080`
-
-### 資料流
-
-**WebSocket 模式** (RunWithWebSocket.bat)：
-```
-TrackingMinimalDemo.exe
-    │
-    └── tracking_data.json (每 2ms 原子寫入)
-            │
-            └── web/server_ws.py (1ms 檔案監聽 + WebSocket 廣播)
-                    │
-                    └── web/viewer_ws.html (WebSocket 接收 + 3D 渲染)
-```
-
-**Pipe 模式** (RunWithPipe.bat) ★最低延遲：
-```
-TrackingMinimalDemo.exe --json
-    │
-    └── stdout (每 2ms 一行 JSON)
-            │
-            └── | (管道)
-                    │
-                    └── web/pipe_server.py (stdin → WebSocket 廣播)
-                            │
-                            └── web/viewer_ws.html (WebSocket 接收 + 3D 渲染)
-```
-
-### JSON 資料格式 (tracking_data.json)
+兩種方式輸出的 JSON 格式完全相同：
 
 ```json
 {
     "scene": 1,
-    "sceneName": "AL_TEST_2M",
+    "sceneName": "AL_TEST_3.5M",
     "trackers": [
         {
             "id": 1,
-            "type": "Tag",
-            "px": 0.1234, "py": 1.6800, "pz": -0.0456,
-            "rx": -0.6286, "ry": 0.0094, "rz": -0.3238, "rw": 0.7071,
+            "type": "Stinger",
+            "number": "1",
+            "px": 0.123456,
+            "py": 1.678901,
+            "pz": -0.045678,
+            "rx": -0.630000,
+            "ry": 0.010000,
+            "rz": -0.320000,
+            "rw": 0.710000,
             "stability": 2
         }
     ],
@@ -993,106 +140,424 @@ TrackingMinimalDemo.exe --json
 }
 ```
 
+> 使用 Pipe/WebSocket 模式時，Python server 會自動在 JSON 中注入 `envData` 欄位（包含場景的 environmentData 字串），供前端解碼顯示燈柱。
+
+### 欄位定義
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| `scene` | int | 當前場景編號 (1-based) |
+| `sceneName` | string | 場景名稱 |
+| `trackers[]` | array | 所有連接的 Alt Tracker（可能 0 ~ 多個） |
+| `trackers[].id` | int | Tracker 流水號（程式啟動後遞增分配） |
+| `trackers[].type` | string | 裝置 Type（在 AntilatencyService 設定，例如 `"Stinger"`，未設定則為空字串） |
+| `trackers[].number` | string | 裝置 Number（在 AntilatencyService 設定，未設定則為空字串） |
+| `trackers[].px/py/pz` | float | **位置**，單位：公尺 (m)，右手座標系，Y 軸朝上 |
+| `trackers[].rx/ry/rz/rw` | float | **旋轉**，四元數 (Quaternion)，格式 (x, y, z, w) |
+| `trackers[].stability` | int | 追蹤穩定度（見下表） |
+| `io.connected` | bool | Extension Module 是否已連接 |
+| `io.type` | string | 模組型號（例如 `"AC50"`） |
+| `io.inputs[]` | int[7] | 7 路 Input 狀態 (0 或 1)，順序：IO1, IO2, IOA3, IOA4, IO5, IO6, IO8 |
+| `io.io7out` | bool | IO7 Output 當前狀態 (true=High/ON, false=Low/OFF) |
+
+### 追蹤穩定度 (Stability)
+
+| 值 | 名稱 | 說明 | 資料可用性 |
+|----|------|------|-----------|
+| 0 | InertialDataInitialization | IMU 正在初始化 | 位置/旋轉均不可用 |
+| 1 | Tracking3Dof | 僅 IMU 旋轉追蹤 | **旋轉可用，位置不可用** |
+| **2** | **Tracking6Dof** | **立柱光學定位 + IMU** | **位置 + 旋轉均可用** |
+| 3 | TrackingBlind6Dof | 暫時遮擋，靠慣性預測 | 位置靠預測，短時間內可用 |
+
+> **重要**：`stability=1`（3DOF）時位置資料不會真正移動，**必須架設立柱達到 `stability=2`（6DOF）後，位置資料才準確可用**。
+
+### IO 腳位邏輯
+
+Input 使用 **Active Low**：Low（接地）= 1（觸發），High（懸空）= 0（未觸發）。
+
+| 索引 | 腳位 | 方向 | 說明 |
+|------|------|------|------|
+| 0 | IO1 | Input | Low=1, High=0 |
+| 1 | IO2 | Input | Low=1, High=0 |
+| 2 | IOA3 | Input | Low=1, High=0 |
+| 3 | IOA4 | Input | Low=1, High=0 |
+| 4 | IO5 | Input | Low=1, High=0 |
+| 5 | IO6 | Input | Low=1, High=0 |
+| 6 | IO8 | Input | Low=1, High=0 |
+| - | IO7 | **Output** | `io7out` 欄位控制 |
+
+### WebSocket 反向控制
+
+Web 端（或任何 WebSocket client）可以發送 JSON 訊息控制 C++ 程式：
+
+```json
+{"type": "keypress", "key": "2"}
+```
+
+| key | 功能 |
+|-----|------|
+| `"1"` ~ `"9"` | 切換場景 |
+| `"O"` | 切換 IO7 Output ON/OFF |
+
+---
+
+## 跨電腦使用
+
+兩台電腦用**有線乙太網 (Ethernet)** 連接，追蹤主機執行 Pipe 模式：
+
+```
+追蹤主機 (192.168.1.100)              顯示端電腦
+┌─────────────────────┐              ┌─────────────────────────────┐
+│ RunWithPipe.bat     │◄─ Ethernet ─►│ 瀏覽器開啟:                 │
+│ WS on 0.0.0.0:8765  │              │ http://192.168.1.100:8080   │
+│ HTTP on 0.0.0.0:8080│              └─────────────────────────────┘
+└─────────────────────┘
+```
+
+也可以用 URL 參數指定主機：`http://localhost:8080?host=192.168.1.100`
+
+---
+
+## 場景設定 (scenes.json)
+
+```json
+{
+    "scenes": [
+        {
+            "name": "場景名稱",
+            "environmentData": "AntilatencyAltEnvironmentPillars~...",
+            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+    ]
+}
+```
+
+- `environmentData` 從 AntilatencyService → Export Environment 取得
+- `placementData` 可省略，預設為原點 (`"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"`)
+- 新增場景後，Web 3D 會自動顯示對應燈柱位置
+- 按 `[1]`-`[9]` 切換場景，`[L]` 列出所有場景
+
+### 目前場景設定
+
+| 按鍵 | 場景名稱 | 說明 |
+|------|----------|------|
+| `1` | AL_TEST_3.5M | 3.5 公尺測試場地 (預設) |
+| `2` | AL_TEST_3M | 3 公尺測試場地 |
+
+### 快速管理工具 (UpdateScene.bat)
+
+無需手動編輯 JSON，使用內建工具快速新增或更新場景：
+
+1. 執行 `UpdateScene.bat`
+2. 選擇 `[2] Add / Update a scene`
+3. 貼上 Antilatency Environment URL
+
+---
+
+## Web 3D 介面
+
+### 控制項
+
+| 位置 | 功能 |
+|------|------|
+| **Topbar** SCENE 1/2/3 | **切換場景** (直接控制 C++ 端) |
+| **Topbar** AXIS FIX | Y+180(前後)、-P(上下)、-Y(左右)、-R(翻滾) 修正追蹤軸向 |
+| **右側** Model Orientation | X/Y/Z 滑桿調整模型初始方向，Save 保存到瀏覽器 |
+| **右側** Tracker 面板 | 位置、四元數、Euler 角度、穩定度 |
+| **右側** IO Pins | 7 路 Input 狀態 + **IO7 Output 開關** (直接控制 C++ 端) |
+
+### 3D 場景元素
+
+| 元素 | 說明 |
+|------|------|
+| XYZ 軸箭頭 | 紅(X)、綠(Y)、藍(Z) 三色箭頭顯示追蹤器朝向 |
+| 環境燈柱 | 自動解碼 environmentData，彩色柱體 (A=粉紅, B=青藍, C=橘色) |
+| 地板格線 | 6x6m 灰色地板 + 30x30 格線 |
+| IR Marker | 紅色球體標示燈柱上的紅外線標記位置 |
+
+### 技術特點
+
+| 項目 | 說明 |
+|------|------|
+| 渲染引擎 | Three.js (ES Module + import maps) |
+| 相機控制 | OrbitControls（滑鼠旋轉/縮放/平移） |
+| 平滑演算法 | 指數平滑 + 速度預測，幀率無關 |
+| 資料持久化 | localStorage 保存模型方向與軸向修正設定 |
+| FPS 顯示 | 即時顯示渲染幀率與資料更新率 |
+
+---
+
+## 檔案結構
+
+```text
+FIM92_C++/
+├── LICENSE                       # MIT 授權
+├── README.md                     # 專案說明 (本文件)
+├── DEVLOG.md                     # 詳細開發紀錄
+├── requirements.txt              # Python 套件依賴 (websockets)
+├── .gitignore                    # Git 忽略清單
+├── scenes.json                   # 場景設定檔
+│
+├── RunWithPipe.bat               # 啟動器：Pipe 模式 (推薦)
+├── RunWithWebSocket.bat          # 啟動器：WS 檔案模式 (備用)
+├── RunTracking.bat               # 啟動器：僅 C++ 追蹤 (無 Web UI，輸出 tracking_data.json)
+├── RunTracking_legacy.bat        # 啟動器：舊模式 (單場景，命令列傳參)
+├── UpdateScene.bat               # 場景管理工具
+│
+├── TrackingMinimalDemoCpp.cpp    # C++ 核心程式 (676 行)
+│                                 #   多場景 + 多 Tracker + Type/Number + HW IO + JSON 輸出
+├── CMakeLists.txt                # CMake 編譯設定 (C++17)
+├── update_scene.py               # 場景管理 Python 腳本 (151 行)
+│
+├── web/
+│   ├── viewer_ws.html            # 3D 視覺化頁面 (755 行, Three.js + WebSocket)
+│   ├── pipe_server.py            # Pipe WebSocket 伺服器 (140 行, stdin → WS 廣播)
+│   └── server_ws.py              # 檔案監聽 WebSocket 伺服器 (143 行, 讀檔 → WS 廣播)
+│
+├── AntilatencySdk/               # Antilatency SDK 4.5.0 (Rev.367)
+│   ├── Api/                      # C++ Header Files (31 個)
+│   │   ├── Antilatency.h
+│   │   ├── Antilatency.Alt.Tracking.h
+│   │   ├── Antilatency.DeviceNetwork.h
+│   │   ├── Antilatency.HardwareExtensionInterface.h
+│   │   ├── Antilatency.Alt.Environment.Selector.h
+│   │   ├── Antilatency.Alt.Environment.Pillars.h
+│   │   ├── Antilatency.Alt.Environment.Rectangle.h
+│   │   ├── Antilatency.Alt.Environment.HorizontalGrid.h
+│   │   └── ... (其他 23 個 header)
+│   └── Bin/                      # 預編譯二進位檔
+│       ├── WindowsDesktop/x64/   # Windows 64-bit DLLs
+│       ├── WindowsDesktop/x86/   # Windows 32-bit DLLs
+│       ├── Linux/x86_64/         # Linux x86_64 .so
+│       ├── Linux/aarch64_linux_gnu/   # Linux ARM64 .so
+│       └── Linux/arm_linux_gnueabihf/ # Linux ARMv7 .so
+│
+└── build/                        # 編譯輸出
+    └── Release/
+        ├── TrackingMinimalDemo.exe   # 編譯產物
+        ├── tracking_data.json        # 即時追蹤資料 (RunTracking.bat 模式)
+        └── *.dll                     # Antilatency SDK DLLs (自動複製)
+```
+
+---
+
+## 各檔案詳細說明
+
+### TrackingMinimalDemoCpp.cpp（C++ 核心程式，676 行）
+
+主程式，負責所有追蹤邏輯與硬體通訊。
+
+**主要元件：**
+
+| 元件 | 行數 | 說明 |
+|------|------|------|
+| `SceneConfig` 結構 | L26-30 | 場景設定：name、environmentData、placementData |
+| `TrackerInstance` 結構 | L35-41 | 追蹤器實例：node、cotask、id、type、number |
+| JSON 解析器 | L53-116 | 自製 JSON 解析（無第三方依賴），解析 scenes.json |
+| `getNodeType()` | L121-127 | 讀取裝置 Type 屬性 |
+| `getNodeNumber()` | L132-138 | 讀取裝置 Number 屬性 |
+| `getAllIdleTrackingNodes()` | L143-155 | 找出所有閒置的 Alt Tracking 節點 |
+| `getIdleExtensionNode()` | L157-168 | 找出閒置的 Extension Module 節點 |
+| `getKeyPress()` | L188-195 | 非阻塞鍵盤輸入（Windows `_kbhit()`/`_getch()`） |
+| `switchScene()` | L200-232 | 場景切換：停止追蹤→建新 Environment→重新掃描 |
+| `main()` | L251-676 | 主函式：參數解析、SDK 載入、主迴圈 |
+
+**主迴圈流程（500 Hz）：**
+
+1. 讀取鍵盤輸入（L/1-9/O/Q）
+2. 檢查 Device Network 更新 (`getUpdateId()`)
+3. 清理已斷線的 Tracker（`isTaskFinished()`）
+4. 偵測並啟動新的閒置 Alt Tracker
+5. 偵測並啟動 Extension Module（7 Input + IO7 Output）
+6. 讀取所有 Tracker 的追蹤狀態（`getExtrapolatedState()`）
+7. 讀取 IO 腳位狀態
+8. 輸出：Console 文字 + JSON 檔案（標準模式）或 stdout JSON（--json 模式）
+
+**關鍵技術：**
+
+- **Atomic File Write**：先寫 `.tmp` 再 `rename`，避免讀取端讀到不完整 JSON
+- **外推預測**：`getExtrapolatedState(placement, 0.005f)` 預測 5ms 後的位置
+- **跨平台**：Windows（DLL）/ Linux（SO，支援 x86_64/aarch64/armv7l）
+
+### web/pipe_server.py（Pipe WebSocket 伺服器，140 行）
+
+零檔案 I/O 的高效能伺服器，讀取 C++ 的 stdout 並透過 WebSocket 廣播。
+
+**架構：**
+
+```
+C++ --json stdout → pipe → stdin_reader thread → asyncio broadcast → WebSocket clients
+                                                                      ↑
+                                                            HTTP :8080 serves viewer_ws.html
+```
+
+**主要元件：**
+
+| 元件 | 說明 |
+|------|------|
+| `stdin_reader()` | 獨立線程讀取 stdin，驗證 JSON 格式，注入 envData |
+| `inject_env_data()` | 從 scenes.json 載入 environmentData 並注入到 JSON 資料 |
+| `ws_handler()` | WebSocket 連線管理，支援接收控制指令 |
+| `send_key_to_tracker()` | 透過 PowerShell 發送按鍵到 C++ 視窗（Windows 限定） |
+| `Handler` | HTTP 伺服器，`/` 和 `/index.html` 導向 viewer_ws.html |
+
+### web/server_ws.py（檔案監聽 WebSocket 伺服器，143 行）
+
+備用方案，輪詢 `tracking_data.json` 檔案變化並透過 WebSocket 廣播。
+
+**架構：**
+
+```
+C++ → tracking_data.json → broadcast_loop (1ms polling) → WebSocket clients
+```
+
+**主要元件：**
+
+| 元件 | 說明 |
+|------|------|
+| `broadcast_loop()` | 1ms 間隔輪詢檔案，字串比對偵測變化 |
+| `inject_env_data_fast()` | 字串操作注入 envData（避免 JSON parse/stringify 開銷） |
+| 其他 | 與 pipe_server.py 共用 WebSocket handler 和 HTTP 伺服器邏輯 |
+
+### web/viewer_ws.html（3D 視覺化介面，755 行）
+
+基於 Three.js 的即時 3D 追蹤視覺化頁面。
+
+**頁面結構：**
+
+| 區域 | 說明 |
+|------|------|
+| CSS (L7-167) | 深色主題、Grid 佈局、響應式控制元件 |
+| Topbar | 狀態指示燈、WS 連線狀態、場景切換按鈕、AXIS FIX 按鈕、FPS/Data Rate |
+| 3D Viewport | Three.js 場景：地板、格線、座標軸、Tracker 模型、燈柱 |
+| Right Panel | Model Orientation 滑桿、Tracker 資料卡片、IO 面板 |
+| JavaScript | WebSocket 連線、JSON 解析、Three.js 更新、localStorage 持久化 |
+
+**平滑演算法：**
+
+```javascript
+// 指數平滑：物件平滑追蹤目標
+const smoothFactor = 1 - Math.pow(1 - SMOOTHING, deltaTime);
+obj.group.position.lerp(predictedPos, smoothFactor);
+
+// 速度預測：外推位置減少延遲感
+predictedPos.addScaledVector(velocity, timeSinceData * PREDICTION_FACTOR);
+```
+
+### update_scene.py（場景管理工具，151 行）
+
+互動式 CLI 工具，用於管理 `scenes.json` 中的場景設定。
+
+| 功能 | 說明 |
+|------|------|
+| List scenes | 列出所有已設定的場景 |
+| Add / Update | 從 Antilatency Environment URL 自動解析並新增/更新場景 |
+| Delete | 依編號刪除場景 |
+| 自動備份 | 儲存前自動建立 `.bak` 備份 |
+
+### CMakeLists.txt（編譯設定，28 行）
+
+| 設定 | 說明 |
+|------|------|
+| C++ 標準 | C++17（filesystem、structured bindings） |
+| SDK 整合 | `AntilatencySdk/Api/` include path |
+| 跨平台 | Windows DLL / Linux SO（自動偵測架構） |
+| Post-Build | 自動複製 SDK 動態函式庫到執行檔目錄 |
+
+### 啟動腳本
+
+| 腳本 | 說明 |
+|------|------|
+| `RunWithPipe.bat` | 推薦方案：設定視窗標題 → UTF-8 → 複製 scenes.json → 開瀏覽器 → Pipe 啟動 |
+| `RunWithWebSocket.bat` | 備用方案：啟動 WS server → 等 2 秒 → 開瀏覽器 → 執行 C++ → 結束時 kill server |
+| `RunTracking.bat` | 純 C++ 模式：直接執行，輸出到 console 和 tracking_data.json |
+| `RunTracking_legacy.bat` | 舊模式：命令列傳入 environmentData 和 placementData |
+| `UpdateScene.bat` | 啟動 update_scene.py 互動式場景管理 |
+
+---
+
+## 編譯
+
+```bash
+# Windows
+cmake -B build -A x64
+cmake --build build --config Release
+
+# Linux
+cmake -B build && cmake --build build
+```
+
 ### 環境需求
 
-- Python 3.x (用於本地 HTTP Server)
-- `websockets` 模組 (WebSocket / Pipe 模式需要)
-  ```bash
-  pip install websockets
-  ```
-- 現代瀏覽器 (Chrome, Edge, Firefox — 需支援 ES Module + import maps)
+- Windows 10/11 (64-bit) 或 Linux (x86_64 / aarch64 / armv7l)
+- C++17 (MSVC 2019+)、CMake 3.10+
+- Python 3.x + `pip install websockets`
+- Antilatency Alt Tracker + Extension Module (USB)
 
 ---
 
-## 架構圖
-
-### 執行流程
-
-```
-START
-  │
-  ├── 解析命令列參數
-  │   ├── 1 個參數 → 讀取 scenes.json
-  │   └── 2 個參數 → 舊模式 (單場景)
-  │
-  ├── 載入 4 個 SDK 函式庫
-  │   ├── AntilatencyDeviceNetwork
-  │   ├── AntilatencyAltTracking
-  │   ├── AntilatencyAltEnvironmentSelector
-  │   └── AntilatencyHardwareExtensionInterface
-  │
-  ├── 建立 Device Network (USB Filter)
-  │
-  ├── 初始化第一個場景的 Environment + Placement
-  │
-  ├── 建立 Cotask Constructors
-  │
-  └── MAIN LOOP (60 FPS)
-      │
-      ├── [鍵盤輸入]
-      │   ├── 1-9 → switchScene()
-      │   ├── L   → 列出場景
-      │   └── Q   → 退出
-      │
-      ├── [裝置更新]
-      │   ├── 清理已斷線 Tracker
-      │   ├── getAllIdleTrackingNodes() → 啟動新 Tracker
-      │   │   └── getNodeType() → 讀取 Type (Stinger/Binoculars/...)
-      │   └── getIdleExtensionNode() → 啟動 HW IO
-      │       └── getNodeType() → 讀取 Type (ExBoard/...)
-      │
-      └── [資料輸出]
-          ├── [S<n>] 場景指示器
-          ├── T<id>[<type>]:P() R() S: 各 Tracker 資料 (含 Type)
-          └── IO[<type>]:<pins> 腳位狀態 (含 Type)
-```
-
-### 場景切換時序
-
-```
-時間 ──────────────────────────────────────────────►
-
-場景1 運行中          切換          場景2 運行中
-┌─────────────┐    ┌──────────┐    ┌─────────────┐
-│ T1 tracking │    │ 停止所有  │    │ T1 tracking │
-│ T2 tracking │──► │ Cotask   │──► │ T2 tracking │
-│ IO reading  │    │ 建新 Env │     │ IO reading  │
-└─────────────┘    │ 重新掃描  │    └─────────────┘
-                   └──────────┘
-                   使用者按 [2]
-```
-
----
-
-## API 參考
-
-### 主要函式
-
-| 函式 | 說明 |
-|------|------|
-| `parseSceneConfigs(filename)` | 解析 JSON 設定檔，回傳 `vector<SceneConfig>` |
-| `getAllIdleTrackingNodes(network, constructor)` | 取得所有閒置的 Alt Tracking 節點 |
-| `getIdleExtensionNode(network, constructor)` | 取得第一個閒置的 HW Extension 節點 |
-| `getNodeType(network, node)` | 讀取裝置 Type 屬性 (從 AntilatencyService 設定) |
-| `switchScene(index, scenes, ...)` | 切換到指定場景 |
-| `getKeyPress()` | 非阻塞鍵盤輸入 (Windows only) |
-
-### 核心結構
-
-| 結構 | 欄位 | 說明 |
-|------|------|------|
-| `SceneConfig` | name, environmentData, placementData | 場景設定 |
-| `TrackerInstance` | node, cotask, id, type | 追蹤器實例 (含 Type 類型) |
-| `Alt::Tracking::State` | pose, stability, localAngularVelocity | 追蹤狀態 |
-| `Math::floatP3Q` | position (float3), rotation (floatQ) | 位姿資料 |
-
----
-
-## 執行時鍵盤操作
+## 鍵盤操作
 
 | 按鍵 | 功能 |
 |------|------|
-| `1`-`9` | 切換到對應編號的場景 |
-| `L` | 列出所有可用場景及當前場景 |
-| `O` | 切換 IO7 Output (ON/OFF) |
+| `1`-`9` | 切換場景 |
+| `L` | 列出場景 |
+| `O` | 切換 IO7 Output |
 | `Q` | 退出程式 |
+
+---
+
+## Antilatency SDK
+
+本專案使用 **Antilatency SDK 4.5.0** (Rev.367)，包含以下核心元件：
+
+| 函式庫 | 版本 | 用途 |
+|--------|------|------|
+| AntilatencyDeviceNetwork | v9.2.0 | USB 裝置列舉與通訊 |
+| AntilatencyAltTracking | v6.1.0 | 6-DOF 位置/旋轉追蹤 |
+| AntilatencyAltEnvironmentSelector | v1.0.4 | 環境設定載入 |
+| AntilatencyHardwareExtensionInterface | v3.1.0 | I/O 腳位控制 |
+
+### 支援的環境類型
+
+| 類型 | 說明 |
+|------|------|
+| Pillars | 直立式發光柱陣列（目前使用） |
+| Rectangle | 矩形邊界標記 |
+| HorizontalGrid | 地面/牆面格線 |
+| Sides | 側牆標記 |
+| Arbitrary2D | 自訂 2D 排列 |
+
+---
+
+## 6DOF 資料說明
+
+```
+6DOF = 3 軸平移 + 3 軸旋轉
+
+平移 P(x, y, z):              旋轉 R(qx, qy, qz, qw):
+  x = 左右移動 (公尺)           四元數表示 3 軸旋轉
+  y = 上下移動 / 高度 (公尺)     可轉換為 Euler 角度:
+  z = 前後移動 (公尺)             Yaw   (偏航/左右轉)
+                                  Pitch (俯仰/上下看)
+                                  Roll  (翻滾/歪頭)
+```
+
+### 硬體更新率
+
+| 元件 | 內部更新率 | 說明 |
+|------|-----------|------|
+| Alt Tracker IMU | 2000 Hz | 加速度計 + 陀螺儀融合 |
+| 光學追蹤 | 依標記可見度 | 紅外線標記定位 |
+| IO Extension Module | 200 Hz | Pin 狀態每 5ms 更新一次 |
+| C++ 主迴圈 | 500 Hz | 每 2ms 輪詢一次 |
+
+---
+
+## 授權
+
+MIT License
+
+---
+
+> 詳細開發歷程、技術細節、效能分析請見 [DEVLOG.md](DEVLOG.md)

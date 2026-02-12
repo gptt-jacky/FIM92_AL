@@ -1,6 +1,6 @@
 """
 FIM92 WebSocket Server - Fast Mode
-Read file and broadcast, no cache
+Read file and broadcast, with envData injection
 """
 import asyncio
 import websockets
@@ -8,6 +8,8 @@ import http.server
 import socketserver
 import os
 import threading
+import json
+import subprocess
 
 PORT_HTTP = 8080
 PORT_WS = 8765
@@ -19,37 +21,87 @@ JSON_PATH = os.path.join(BUILD_DIR, "tracking_data.json")
 
 clients = set()
 last_content = ""
+last_enriched = ""
+
+# Load scenes.json for environmentData injection
+# Pre-build injection snippets for each scene to avoid per-frame JSON parsing
+scenes_env = {}
+scenes_inject_snippet = {}
+try:
+    with open(os.path.join(PROJECT_DIR, 'scenes.json'), 'r', encoding='utf-8') as f:
+        scenes_cfg = json.load(f)
+    for i, s in enumerate(scenes_cfg.get('scenes', []), 1):
+        env = s.get('environmentData', '')
+        scenes_env[i] = env
+        # Pre-build the string snippet: ,"envData":"..."
+        scenes_inject_snippet[i] = ',"envData":"' + env + '"'
+    print(f"[Scenes] Loaded {len(scenes_env)} scene(s) from scenes.json")
+except Exception as e:
+    print(f"[Scenes] Warning: Could not load scenes.json: {e}")
+
+def inject_env_data_fast(raw_json):
+    """Fast envData injection using string manipulation instead of JSON parse/stringify"""
+    try:
+        # Find "scene":N to get scene id
+        idx = raw_json.find('"scene":')
+        if idx == -1:
+            return raw_json
+        num_start = idx + 8
+        num_end = num_start
+        while num_end < len(raw_json) and raw_json[num_end].isdigit():
+            num_end += 1
+        scene_id = int(raw_json[num_start:num_end])
+
+        if scene_id in scenes_inject_snippet and '"envData"' not in raw_json:
+            # Insert snippet before the last }
+            last_brace = raw_json.rfind('}')
+            return raw_json[:last_brace] + scenes_inject_snippet[scene_id] + '}'
+    except:
+        pass
+    return raw_json
+
+def send_key_to_tracker(key):
+    """Uses PowerShell to send a keystroke to the C++ console window."""
+    def _run():
+        cmd = f"powershell -noprofile -command \"$w=New-Object -ComObject WScript.Shell; if($w.AppActivate('FIM92_Tracker_Window')){{$w.SendKeys('{key}')}}\""
+        subprocess.run(cmd, shell=True)
+    threading.Thread(target=_run, daemon=True).start()
 
 async def broadcast_loop():
-    """Read and broadcast without any checks"""
-    global last_content
+    """Read file and broadcast on change"""
+    global last_content, last_enriched
 
     while True:
         try:
             with open(JSON_PATH, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Only broadcast if content changed
-            if content != last_content and clients:
+            if content and content != last_content and clients:
                 last_content = content
+                last_enriched = inject_env_data_fast(content)
                 await asyncio.gather(
-                    *[c.send(content) for c in clients.copy()],
+                    *[c.send(last_enriched) for c in clients.copy()],
                     return_exceptions=True
                 )
         except:
             pass
 
-        await asyncio.sleep(0.001)  # 1ms = 1000Hz
+        await asyncio.sleep(0.001)  # 1ms polling
 
 async def ws_handler(websocket):
-    """WebSocket handler - new API (websockets 10+)"""
+    """WebSocket handler"""
     clients.add(websocket)
     print(f"[+] Client connected ({len(clients)} total)")
     try:
-        if last_content:
-            await websocket.send(last_content)
-        async for _ in websocket:
-            pass
+        if last_enriched:
+            await websocket.send(last_enriched)
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                if data.get('type') == 'keypress':
+                    send_key_to_tracker(data.get('key'))
+            except:
+                pass
     except:
         pass
     finally:
@@ -80,7 +132,7 @@ async def main():
     print(f"  WS:   ws://localhost:{PORT_WS}")
     print("="*50)
 
-    async with websockets.serve(ws_handler, "localhost", PORT_WS):
+    async with websockets.serve(ws_handler, "0.0.0.0", PORT_WS):
         await asyncio.gather(asyncio.Future(), broadcast_loop())
 
 if __name__ == '__main__':

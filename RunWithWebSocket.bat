@@ -1,8 +1,8 @@
 @echo off
-chcp 65001 >nul 2>&1
-echo === FIM92 Tracking + WebSocket Viewer ===
+title FIM92_Tracker_Window
+echo === FIM92 Tracking + WebSocket Viewer (Control Enabled) ===
 echo.
-echo [!] Need: pip install websockets
+echo [!] 需要先安裝 websockets: pip install websockets
 echo.
 
 cd /d "%~dp0build\Release"
@@ -12,10 +12,11 @@ echo Starting WebSocket server...
 start "FIM92 WebSocket Server" python "%~dp0web\server_ws.py"
 
 timeout /t 2 >nul
-start "" "http://localhost:8080"
+start http://localhost:8080
 
-echo Starting tracker...
-TrackingMinimalDemo.exe "..\..\scenes.json"
+echo Starting tracker (Output hidden for performance)...
+echo [Info] Press Ctrl+C in this window to stop the tracker.
+TrackingMinimalDemo.exe "..\..\scenes.json" >nul
 
 echo.
 echo Tracker stopped. Closing server...
