@@ -1141,6 +1141,160 @@ cd build
 
 ---
 
+## Phase 10：多組 HW Extension + 軟體組資料介面 (2026-02-25)
+
+**目標**：支援多組 HW Extension Module（每個 Tracker 各一組 IO），並提供軟體組精簡 WebSocket JSON 介面。
+
+### 10.1 多組 HW Extension 支援
+
+**問題**：原始架構只支援一組 HW Extension Module，但實際硬體有多組（A/B/C 各一組），每組 IO 模組需對應各自的 Tracker。
+
+**新增結構體**：
+
+```cpp
+// Per-HW-Extension instance (L44-51)
+struct HWExtInstance {
+    Antilatency::DeviceNetwork::NodeHandle node;
+    Antilatency::HardwareExtensionInterface::ICotask cotask;
+    std::string type;
+    std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7;
+    bool io7State = false;
+};
+```
+
+**配對機制**：透過 Antilatency Type 屬性匹配 Tracker 與 HW Extension
+
+```cpp
+// 主迴圈中建立 type -> HWExtInstance 映射 (L594-599)
+std::map<std::string, HWExtInstance*> hwByType;
+for (auto& hw : hwExtensions) {
+    if (hw.cotask != nullptr && !hw.cotask.isTaskFinished() && !hw.type.empty()) {
+        hwByType[hw.type] = &hw;
+    }
+}
+```
+
+**Tag 映射**：
+
+```cpp
+// Type -> Tag letter (L212-217)
+static std::string typeToTag(const std::string& type) {
+    if (type == "Stinger") return "A";
+    if (type == "Helmet") return "B";
+    if (type == "Binoculars") return "C";
+    return "";
+}
+```
+
+| Tag | 裝置 | Type 屬性 |
+|-----|------|-----------|
+| A | 刺針 Stinger | "Stinger" |
+| B | 頭盔 Helmet | "Helmet" |
+| C | 望遠鏡 Binoculars | "Binoculars" |
+
+**IO 8-bit 字串格式**：`IO1, IO2, IOA3, IOA4, IO5, IO6, IO7(輸出), IO8`
+
+- 前 6 位：輸入腳位
+- 第 7 位：IO7 輸出狀態
+- 第 8 位：IO8 輸入
+- 無對應 IO 模組時回傳 `"00000000"`
+
+**JSON 向下相容**：
+
+- 新增 per-tracker `"tag"` 和 `"io"` 欄位
+- 保留全域 `"io":{...}` 欄位（第一組 HW Extension 的資料）
+- 現有 viewer_ws.html 不受影響
+
+### 10.2 軟體組資料介面
+
+**架構**：
+
+```
+C++ --json stdout → pipe → data_server.py → WebSocket → 軟體組程式
+                           (regex transform)   (0.0.0.0:8765)
+```
+
+**`web/data_server.py`** — 精簡版 WebSocket 轉發器：
+
+- 從 stdin 讀取 C++ 完整 JSON
+- 用 pre-compiled regex 提取欄位（不用 json.loads/json.dumps）
+- 轉換為軟體組格式：`{"trackers":[{"tag":"A","px":...,"io":"00000000"}]}`
+- WebSocket 廣播，支援可配置 Host/Port
+- 無 HTTP server（軟體組不需要網頁）
+
+**軟體組收到的 JSON**：
+
+```json
+{"trackers":[{"tag":"A","px":1.256012,"py":1.680032,"pz":0.000145,"rx":-0.710743,"ry":0.008621,"rz":-0.014023,"rw":0.703312,"io":"00000000"}]}
+```
+
+### 10.3 Console Monitor (`web/monitor.py`)
+
+原地刷新的 console 監控工具，取代原本 `\r` 單行覆寫：
+
+- 每個 Tracker 分行顯示 Tag、Position、Rotation、IO
+- IO 每個 bit 有腳位名稱標示，有訊號的用綠色高亮
+- 即時 FPS 顯示
+- 用 ANSI escape codes 實現畫面清屏重繪
+
+### 10.4 WebSocket Client (`web/ws_client.py`)
+
+連線驗證工具：
+
+- 連線到 data_server.py 的 WebSocket
+- 顯示原始 JSON（軟體組實際收到的格式）
+- 即時顯示接收速率 (msg/sec)
+- 啟動時互動式輸入 Server Host/Port
+
+### 10.5 Pipe 效能優化
+
+**問題**：C++ 以 500Hz 輸出，但 Python 端只收到 ~64 msg/sec。
+
+**根因分析（三層 buffering）**：
+
+| 層級 | 問題 | 解法 |
+|------|------|------|
+| C stdio | Windows pipe 模式下 stdout 預設 4KB full buffering | `setvbuf(stdout, NULL, _IONBF, 0)` |
+| C++ stream | `std::cout` 預設不即時 flush | `std::cout.setf(std::ios::unitbuf)` |
+| Python stdin | `for line in sys.stdin` 使用 read-ahead buffering | `os.read(fd, 65536)` OS 層級 unbuffered read |
+
+**Windows asyncio.sleep 陷阱**：Windows 預設計時器解析度 15.625ms，`asyncio.sleep(0.001)` 實際等待 ~15.6ms（=64Hz）。改用 `asyncio.Event` 信號機制。
+
+**優化結果**：
+
+| 版本 | RX 速率 |
+|------|---------|
+| 原始（`for line in sys.stdin`） | ~64 msg/sec |
+| + `os.read()` + `asyncio.Event` | ~128 msg/sec |
+| + C++ `setvbuf` unbuffered | ~128 msg/sec |
+
+128 msg/sec 的剩餘瓶頸為 Windows kernel pipe buffer，無法從 user-space 消除。
+
+### 10.6 網路設定
+
+- Server 預設綁定 `0.0.0.0`（接受 LAN 連線）
+- BAT 啟動時互動式詢問 Host/Port
+- 已驗證跨機器 WiFi 連線可用
+- SOFTWARE_GUIDE.md 包含防火牆設定指令
+
+### 10.7 新增 / 修改的檔案
+
+| 檔案 | 動作 | 說明 |
+|------|------|------|
+| `TrackingMinimalDemoCpp.cpp` | 修改 | 多組 HWExtInstance、typeToTag()、per-tracker IO、setvbuf |
+| `web/data_server.py` | 新建 | 軟體組 WebSocket 轉發器 |
+| `web/monitor.py` | 新建 | 原地刷新 console 監控器 |
+| `web/ws_client.py` | 新建 | WebSocket 連線驗證工具 |
+| `web/pipe_server.py` | 修改 | os.read() unbuffered stdin |
+| `RunDataServer.bat` | 新建 | 軟體組啟動器 |
+| `RunMonitor.bat` | 新建 | Console 監控器啟動器 |
+| `RunWSClient.bat` | 新建 | WebSocket client 啟動器 |
+| `SOFTWARE_GUIDE.md` | 新建 | 軟體組使用指南 |
+| `DEV_DISCUSSION.md` | 新建 | 開發討論紀錄 |
+
+---
+
 ## 為什麼使用本地有線連接？
 
 - **延遲最低**：USB 直連，可達 Antilatency 標榜的 **2ms 低延遲**

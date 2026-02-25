@@ -40,6 +40,16 @@ struct TrackerInstance {
     std::string number; // Number read from AntilatencyService
 };
 
+// Per-HW-Extension instance (supports multiple IO modules)
+struct HWExtInstance {
+    Antilatency::DeviceNetwork::NodeHandle node;
+    Antilatency::HardwareExtensionInterface::ICotask cotask;
+    std::string type;
+    std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7;
+    bool io7State = false;
+};
+
 // ============================================================
 // Simple JSON parser for scenes.json
 // Supports format:
@@ -167,6 +177,20 @@ Antilatency::DeviceNetwork::NodeHandle getIdleExtensionNode(
     return Antilatency::DeviceNetwork::NodeHandle::Null;
 }
 
+std::vector<Antilatency::DeviceNetwork::NodeHandle> getAllIdleExtensionNodes(
+    Antilatency::DeviceNetwork::INetwork network,
+    Antilatency::HardwareExtensionInterface::ICotaskConstructor hwCotaskConstructor)
+{
+    std::vector<Antilatency::DeviceNetwork::NodeHandle> result;
+    std::vector<Antilatency::DeviceNetwork::NodeHandle> hwNodes = hwCotaskConstructor.findSupportedNodes(network);
+    for (auto node : hwNodes) {
+        if (network.nodeGetStatus(node) == Antilatency::DeviceNetwork::NodeStatus::Idle) {
+            result.push_back(node);
+        }
+    }
+    return result;
+}
+
 #if defined(__linux__)
 std::string getParentPath(const char *inp){
     auto len = strlen(inp);
@@ -181,6 +205,16 @@ std::string getParentPath(const char *inp){
     throw std::runtime_error("no parent path: " + std::string(inp));
 }
 #endif
+
+// ============================================================
+// Map Type property to Tag letter (A/B/C)
+// ============================================================
+static std::string typeToTag(const std::string& type) {
+    if (type == "Stinger") return "A";
+    if (type == "Helmet") return "B";
+    if (type == "Binoculars") return "C";
+    return "";  // Unknown type, no tag
+}
 
 // ============================================================
 // Check for keyboard input (non-blocking)
@@ -294,8 +328,9 @@ int main(int argc, char* argv[]) {
         }
         std::cout << std::endl;
     } else {
-        // JSON mode: disable output buffering for pipe
-        std::cout.setf(std::ios::unitbuf);
+        // JSON mode: disable ALL output buffering for pipe
+        setvbuf(stdout, NULL, _IONBF, 0);  // C stdio: fully unbuffered
+        std::cout.setf(std::ios::unitbuf);  // C++ stream: flush after every op
         std::cerr << "[JSON Mode] Loaded " << scenes.size() << " scene(s)" << std::endl;
     }
 
@@ -377,12 +412,8 @@ int main(int argc, char* argv[]) {
     std::vector<TrackerInstance> trackers;
     int nextTrackerId = 1;
 
-    Antilatency::HardwareExtensionInterface::ICotask hwCotask = nullptr;
-    std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
-    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7 = nullptr;
-    bool io7State = false;  // false=Low(off), true=High(on)
-    bool hwRunning = false;
-    std::string hwType;  // Type of the connected HW extension module
+    std::vector<HWExtInstance> hwExtensions;
+    bool io7State = false;  // Global IO7 toggle state (O key)
 
     // Input pins: IO1, IO2, IOA3, IOA4, IO5, IO6, IO8 (7 pins)
     // Output pin: IO7 (1 pin)
@@ -420,14 +451,19 @@ int main(int argc, char* argv[]) {
                 }
                 std::cout << std::endl;
             } else if (key == 'o' || key == 'O') {
-                if (outputPinIO7 != nullptr) {
+                if (!hwExtensions.empty()) {
                     io7State = !io7State;
-                    outputPinIO7.setState(io7State
-                        ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
-                        : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                    std::cout << "\n>> IO7 Output: " << (io7State ? "ON (High)" : "OFF (Low)") << std::endl;
+                    for (auto& hw : hwExtensions) {
+                        if (hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                            hw.io7State = io7State;
+                            hw.outputPinIO7.setState(io7State
+                                ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                                : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        }
+                    }
+                    std::cout << "\n>> IO7 Output (all): " << (io7State ? "ON (High)" : "OFF (Low)") << std::endl;
                 } else {
-                    std::cout << "\n>> IO7: Extension Module not connected" << std::endl;
+                    std::cout << "\n>> IO7: No Extension Modules connected" << std::endl;
                 }
             } else if (key >= '1' && key <= '9') {
                 int idx = key - '1';
@@ -492,38 +528,56 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // HW extension (single instance)
-            if (hwCotask == nullptr || hwCotask.isTaskFinished()) {
-                hwCotask = nullptr;
-                hwRunning = false;
-                hwType = "";
-                inputPins.clear();
-                outputPinIO7 = nullptr;
-                io7State = false;
-                const auto hwNode = getIdleExtensionNode(network, hwCotaskConstructor);
-                if (hwNode != Antilatency::DeviceNetwork::NodeHandle::Null) {
-                    hwCotask = hwCotaskConstructor.startTask(network, hwNode);
-                    if (hwCotask != nullptr) {
-                        // Create 7 input pins (IO1, IO2, IOA3, IOA4, IO5, IO6, IO8)
-                        for (int i = 0; i < inputPinCount; i++) {
-                            inputPins.push_back(hwCotask.createInputPin(inputPinDefs[i]));
-                        }
-                        // Create IO7 as output pin (initial state: Low = off)
-                        outputPinIO7 = hwCotask.createOutputPin(
-                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
-                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        hwCotask.run();
-                        hwRunning = true;
-                        hwType = getNodeType(network, hwNode);
-                        if (!jsonMode) {
-                            if (!hwType.empty()) {
-                                std::cout << "\nExtension Module [" << hwType << "] connected! (7 input + IO7 output)" << std::endl;
-                            } else {
-                                std::cout << "\nExtension Module connected! (7 input + IO7 output)" << std::endl;
-                            }
-                        } else {
-                            std::cerr << "[JSON] Extension Module connected" << std::endl;
-                        }
+            // HW extensions (multi-instance): remove finished ones
+            hwExtensions.erase(
+                std::remove_if(hwExtensions.begin(), hwExtensions.end(),
+                    [](HWExtInstance& hw) {
+                        return hw.cotask == nullptr || hw.cotask.isTaskFinished();
+                    }),
+                hwExtensions.end());
+
+            // Collect HW nodes already in use
+            std::vector<Antilatency::DeviceNetwork::NodeHandle> usedHWNodes;
+            for (auto& hw : hwExtensions) {
+                usedHWNodes.push_back(hw.node);
+            }
+
+            // Find and start ALL idle HW Extension nodes
+            auto idleHWNodes = getAllIdleExtensionNodes(network, hwCotaskConstructor);
+            for (auto hwNode : idleHWNodes) {
+                // Skip if already in use
+                bool alreadyUsed = false;
+                for (auto& used : usedHWNodes) {
+                    if (used == hwNode) { alreadyUsed = true; break; }
+                }
+                if (alreadyUsed) continue;
+
+                auto cotask = hwCotaskConstructor.startTask(network, hwNode);
+                if (cotask != nullptr) {
+                    HWExtInstance hw;
+                    hw.node = hwNode;
+                    hw.cotask = cotask;
+                    hw.type = getNodeType(network, hwNode);
+                    // Create 7 input pins (IO1, IO2, IOA3, IOA4, IO5, IO6, IO8)
+                    for (int i = 0; i < inputPinCount; i++) {
+                        hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
+                    }
+                    // Create IO7 as output pin (initial state: Low = off)
+                    hw.outputPinIO7 = cotask.createOutputPin(
+                        Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
+                        Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                    hw.io7State = false;
+                    cotask.run();
+                    hwExtensions.push_back(hw);
+
+                    if (!jsonMode) {
+                        std::cout << "\nExtension Module";
+                        if (!hw.type.empty()) std::cout << " [" << hw.type << "]";
+                        std::cout << " connected! (7 input + IO7 output)" << std::endl;
+                    } else {
+                        std::cerr << "[JSON] Extension Module";
+                        if (!hw.type.empty()) std::cerr << " [" << hw.type << "]";
+                        std::cerr << " connected" << std::endl;
                     }
                 }
             }
@@ -537,7 +591,14 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-        bool hasIO = (hwRunning && hwCotask != nullptr && !hwCotask.isTaskFinished());
+        // Build map of type -> HWExtInstance for pairing
+        std::map<std::string, HWExtInstance*> hwByType;
+        for (auto& hw : hwExtensions) {
+            if (hw.cotask != nullptr && !hw.cotask.isTaskFinished() && !hw.type.empty()) {
+                hwByType[hw.type] = &hw;
+            }
+        }
+        bool hasIO = !hwByType.empty();
 
         if (hasAnyTracker || hasIO) {
             std::ostringstream oss;
@@ -546,17 +607,19 @@ int main(int argc, char* argv[]) {
             // Scene indicator
             oss << "[S" << (currentSceneIndex + 1) << "] ";
 
-            // Display data for each tracker
+            // Display data for each tracker (with per-tracker IO)
             if (hasAnyTracker) {
                 for (auto& t : trackers) {
                     if (t.cotask == nullptr || t.cotask.isTaskFinished()) continue;
                     Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.005f);
-                    if (!t.number.empty()) {
+                    std::string tag = typeToTag(t.type);
+                    if (!tag.empty()) {
+                        oss << "T" << t.id << "[" << tag << "]";
+                    } else if (!t.number.empty()) {
                         oss << "#" << t.number;
                     } else {
                         oss << "T" << t.id;
                     }
-                    if (!t.type.empty()) oss << "[" << t.type << "]";
                     oss << ":"
                         << "P("
                         << std::setw(7) << state.pose.position.x << ","
@@ -567,25 +630,26 @@ int main(int argc, char* argv[]) {
                         << std::setw(7) << state.pose.rotation.y << ","
                         << std::setw(7) << state.pose.rotation.z << ","
                         << std::setw(7) << state.pose.rotation.w << ") "
-                        << "S:" << static_cast<int32_t>(state.stability.stage)
-                        << "  ";
+                        << "S:" << static_cast<int32_t>(state.stability.stage);
+
+                    // Show paired IO for this tracker
+                    auto hwIt = hwByType.find(t.type);
+                    if (hwIt != hwByType.end()) {
+                        oss << " IO[" << tag << "]:";
+                        for (int i = 0; i < inputPinCount; i++) {
+                            auto pinState = hwIt->second->inputPins[i].getState();
+                            oss << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
+                        }
+                        // IO7 output bit
+                        oss << (hwIt->second->io7State ? "1" : "0");
+                    }
+                    oss << "  ";
                 }
             } else {
                 oss << "Tracker: --  ";
             }
 
-            if (hasIO) {
-                oss << "IO";
-                if (!hwType.empty()) oss << "[" << hwType << "]";
-                oss << ":";
-                // 7 input pins: IO1, IO2, IOA3, IOA4, IO5, IO6, IO8
-                for (int i = 0; i < inputPinCount; i++) {
-                    auto pinState = inputPins[i].getState();
-                    oss << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
-                }
-                // IO7 output state
-                oss << " IO7out:" << (io7State ? "ON" : "OFF");
-            } else {
+            if (!hasIO) {
                 oss << "IO: --";
             }
 
@@ -596,7 +660,7 @@ int main(int argc, char* argv[]) {
             js << "\"scene\":" << (currentSceneIndex + 1) << ",";
             js << "\"sceneName\":\"" << scenes[currentSceneIndex].name << "\",";
 
-            // Trackers array
+            // Trackers array (with per-tracker IO)
             js << "\"trackers\":[";
             bool firstTracker = true;
             if (hasAnyTracker) {
@@ -605,7 +669,28 @@ int main(int argc, char* argv[]) {
                     Antilatency::Alt::Tracking::State state = t.cotask.getExtrapolatedState(currentPlacement, 0.005f);
                     if (!firstTracker) js << ",";
                     firstTracker = false;
+
+                    std::string tag = typeToTag(t.type);
+
+                    // Build per-tracker IO 8-bit string: IO1,IO2,IOA3,IOA4,IO5,IO6,IO7(out),IO8
+                    std::string ioBits = "00000000";
+                    auto hwIt = hwByType.find(t.type);
+                    if (hwIt != hwByType.end()) {
+                        auto& hw = *(hwIt->second);
+                        // First 6 input pins: IO1, IO2, IOA3, IOA4, IO5, IO6
+                        for (int i = 0; i < 6; i++) {
+                            auto pinState = hw.inputPins[i].getState();
+                            ioBits[i] = (pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
+                        }
+                        // IO7 output state (bit 6)
+                        ioBits[6] = hw.io7State ? '1' : '0';
+                        // IO8 input (7th input pin, index 6 in inputPins)
+                        auto pin8State = hw.inputPins[6].getState();
+                        ioBits[7] = (pin8State == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
+                    }
+
                     js << "{\"id\":" << t.id
+                       << ",\"tag\":\"" << tag << "\""
                        << ",\"type\":\"" << t.type << "\""
                        << ",\"number\":\"" << t.number << "\""
                        << ",\"px\":" << state.pose.position.x
@@ -616,23 +701,26 @@ int main(int argc, char* argv[]) {
                        << ",\"rz\":" << state.pose.rotation.z
                        << ",\"rw\":" << state.pose.rotation.w
                        << ",\"stability\":" << static_cast<int32_t>(state.stability.stage)
+                       << ",\"io\":\"" << ioBits << "\""
                        << "}";
                 }
             }
             js << "],";
 
-            // IO state
+            // Global IO state (backwards compatible for existing viewer)
             js << "\"io\":{\"connected\":" << (hasIO ? "true" : "false");
             if (hasIO) {
-                js << ",\"type\":\"" << hwType << "\"";
+                // Use first HW extension for backwards compatibility
+                auto& firstHW = hwExtensions[0];
+                js << ",\"type\":\"" << firstHW.type << "\"";
                 js << ",\"inputs\":[";
                 for (int i = 0; i < inputPinCount; i++) {
                     if (i > 0) js << ",";
-                    auto pinState = inputPins[i].getState();
+                    auto pinState = firstHW.inputPins[i].getState();
                     js << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? 1 : 0);
                 }
                 js << "]";
-                js << ",\"io7out\":" << (io7State ? "true" : "false");
+                js << ",\"io7out\":" << (firstHW.io7State ? "true" : "false");
             }
             js << "}";
             js << "}";
@@ -670,7 +758,10 @@ int main(int argc, char* argv[]) {
         t.cotask = nullptr;
     }
     trackers.clear();
-    hwCotask = nullptr;
+    for (auto& hw : hwExtensions) {
+        hw.cotask = nullptr;
+    }
+    hwExtensions.clear();
 
     return 0;
 }

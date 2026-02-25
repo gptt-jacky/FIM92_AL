@@ -67,14 +67,22 @@ def inject_env_data(raw_json):
     return raw_json
 
 def stdin_reader(loop):
-    """Read stdin in a separate thread"""
+    """Read stdin using OS-level unbuffered read for maximum throughput"""
     global latest_data
-    for line in sys.stdin:
-        line = line.strip()
-        if line.startswith('{') and line.endswith('}'):
-            line = inject_env_data(line)
-            latest_data = line
-            asyncio.run_coroutine_threadsafe(broadcast(line), loop)
+    fd = sys.stdin.buffer.fileno()
+    remainder = b""
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        remainder += chunk
+        while b"\n" in remainder:
+            line_bytes, remainder = remainder.split(b"\n", 1)
+            line = line_bytes.decode("utf-8", errors="replace").strip()
+            if line.startswith('{') and line.endswith('}'):
+                line = inject_env_data(line)
+                latest_data = line
+                asyncio.run_coroutine_threadsafe(broadcast(line), loop)
 
 async def ws_handler(websocket):
     """WebSocket handler - new API (websockets 10+)"""
