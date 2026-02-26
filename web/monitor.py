@@ -117,7 +117,7 @@ def render(data, frame_count, fps):
     lines.append(f"  HW Ext Modules with signal: {hw_count}/{total}")
 
     lines.append("")
-    lines.append(f"  {DIM}Frame #{frame_count}  |  [O] Toggle IO7  [1-9] Scene  [Q] Quit{RESET}")
+    lines.append(f"  {DIM}Frame #{frame_count}  |  [A] IO7-A  [B] IO7-B  [O] IO7-All  [1-9] Scene  [Q] Quit{RESET}")
 
     return "\n".join(lines)
 

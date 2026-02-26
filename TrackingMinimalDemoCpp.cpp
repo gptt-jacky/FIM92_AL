@@ -448,6 +448,28 @@ int main(int argc, char* argv[]) {
                     std::cout << std::endl;
                 }
                 std::cout << std::endl;
+            } else if (key == 'a' || key == 'A') {
+                for (auto& hw : hwExtensions) {
+                    if (hw.type == "A" && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.io7State = !hw.io7State;
+                        hw.outputPinIO7.setState(hw.io7State
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cout << "\n>> IO7[A]: " << (hw.io7State ? "ON" : "OFF") << std::endl;
+                        break;
+                    }
+                }
+            } else if (key == 'b' || key == 'B') {
+                for (auto& hw : hwExtensions) {
+                    if (hw.type == "B" && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.io7State = !hw.io7State;
+                        hw.outputPinIO7.setState(hw.io7State
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cout << "\n>> IO7[B]: " << (hw.io7State ? "ON" : "OFF") << std::endl;
+                        break;
+                    }
+                }
             } else if (key == 'o' || key == 'O') {
                 if (!hwExtensions.empty()) {
                     io7State = !io7State;

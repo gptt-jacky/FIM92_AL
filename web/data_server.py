@@ -13,6 +13,9 @@ import time
 import threading
 import re
 import argparse
+import json
+import subprocess
+from datetime import datetime
 
 # ============================================================
 # WebSocket Server Settings (defaults, can override via args)
@@ -51,6 +54,26 @@ _tracker_re = re.compile(
     r'"io":"([^"]*)"'
     r'\}'
 )
+
+
+def send_key_to_tracker(key):
+    """
+    Uses PowerShell to send a keystroke to the C++ console window.
+    Requires the window title to be 'MANPADS_DataServer' (set by RunDataServer.bat).
+    """
+    def _run():
+        try:
+            ps_cmd = (
+                "$w=New-Object -ComObject WScript.Shell; "
+                f"if($w.AppActivate('MANPADS_DataServer')){{$w.SendKeys('{key}')}}"
+            )
+            subprocess.run(
+                ["powershell", "-noprofile", "-command", ps_cmd],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except Exception as e:
+            sys.stderr.write(f"\n[SendKey Error] {e}\n")
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def transform_fast(line):
@@ -114,20 +137,29 @@ async def broadcast_loop():
 
 
 async def ws_handler(websocket):
-    """WebSocket handler — send-only"""
+    """WebSocket handler"""
     clients.add(websocket)
     remote = websocket.remote_address
-    print(f"[+] Client connected: {remote[0]}:{remote[1]} (total: {len(clients)})")
+    addr = f"{remote[0]}:{remote[1]}"
+    print(f"[+] Client connected: {addr} (total: {len(clients)})")
     try:
         if latest_data:
             await websocket.send(latest_data)
         async for message in websocket:
-            pass
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"  [{ts}] {addr} >> {message}")
+            try:
+                data = json.loads(message)
+                io7_cmd = data.get("io7", "")
+                if io7_cmd in ("A1", "A0", "B1", "B0"):
+                    send_key_to_tracker(io7_cmd[0].lower())
+            except Exception:
+                pass
     except Exception:
         pass
     finally:
         clients.discard(websocket)
-        print(f"[-] Client disconnected: {remote[0]}:{remote[1]} (total: {len(clients)})")
+        print(f"[-] Client disconnected: {addr} (total: {len(clients)})")
 
 
 def stats_reporter():

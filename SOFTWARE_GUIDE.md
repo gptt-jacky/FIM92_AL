@@ -84,6 +84,7 @@ Server Port [8765]: 8765
 ```
 
 輸入 Server 的內網 IP 即可連線，會顯示即時收到的原始 JSON 和接收速率。
+支援鍵盤快捷鍵：按 `A` / `B` 鍵即可 toggle 對應裝置的 IO7，底部即時顯示 IO7 狀態。
 
 ### 用自己的程式連線
 
@@ -99,7 +100,7 @@ Server Port [8765]: 8765
 | 協定 | WebSocket (RFC 6455) |
 | 位址 | `ws://<server-ip>:<port>`（預設 port 8765） |
 | Frame 類型 | Text frame |
-| 方向 | Server → Client 單向推送 |
+| 方向 | Server → Client 推送資料；Client → Server 控制指令（IO7） |
 | 更新頻率 | ~128 msg/sec |
 | 編碼 | UTF-8 |
 
@@ -193,6 +194,53 @@ Server Port [8765]: 8765
 | 1 台裝置 | `{"trackers":[{"tag":"A",...}]}` |
 | 4 台裝置 | `{"trackers":[{"tag":"A",...},{"tag":"B",...},{"tag":"C",...},{"tag":"D",...}]}` |
 | 裝置無 IO 模組 | 該裝置的 `"io"` 為 `"00000000"` |
+
+---
+
+## IO7 控制指令
+
+Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO7 輸出腳位。
+
+### 指令格式
+
+| 指令 | 說明 |
+|------|------|
+| `{"io7":"A1"}` | Tag A IO7 → High |
+| `{"io7":"A0"}` | Tag A IO7 → Low |
+| `{"io7":"B1"}` | Tag B IO7 → High |
+| `{"io7":"B0"}` | Tag B IO7 → Low |
+
+### 使用範例（Python）
+
+```python
+import asyncio
+import websockets
+import json
+
+async def toggle_io7():
+    async with websockets.connect("ws://192.168.1.100:8765") as ws:
+        # 設定 Tag A IO7 High
+        await ws.send(json.dumps({"io7": "A1"}))
+
+        # 設定 Tag B IO7 High
+        await ws.send(json.dumps({"io7": "B1"}))
+
+        # 確認狀態：讀取回傳的 io 欄位
+        async for message in ws:
+            data = json.loads(message)
+            for t in data["trackers"]:
+                print(f"[{t['tag']}] io={t['io']}  IO7={t['io'][6]}")
+            break
+
+asyncio.run(toggle_io7())
+```
+
+### 注意事項
+
+- IO7 採 **toggle** 機制：每次發送指令會切換一次狀態（High ↔ Low）
+- 建議搭配回傳的 `io` 欄位第 7 位（`io[6]`）確認實際狀態
+- 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
+- 測試工具 `RunWSClient.bat` 支援鍵盤快捷：按 `A` / `B` 鍵即可 toggle
 
 ---
 

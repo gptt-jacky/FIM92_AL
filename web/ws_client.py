@@ -11,15 +11,43 @@ import sys
 import os
 import time
 import argparse
+import threading
+import json
+import msvcrt
 
 CLEAR_SCREEN = "\033[2J\033[H"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
 
+io7_state = {"A": False, "B": False}
+ws_ref = None
+loop_ref = None
+
+
+def keyboard_reader():
+    """Read keyboard input: A/B toggle IO7."""
+    while True:
+        if msvcrt.kbhit():
+            ch = msvcrt.getch()
+            try:
+                key = ch.decode().upper()
+            except Exception:
+                continue
+            if key in ("A", "B") and ws_ref and loop_ref:
+                io7_state[key] = not io7_state[key]
+                val = "1" if io7_state[key] else "0"
+                cmd = json.dumps({"io7": f"{key}{val}"})
+                asyncio.run_coroutine_threadsafe(ws_ref.send(cmd), loop_ref)
+        time.sleep(0.05)
+
 
 async def main(url):
+    global ws_ref, loop_ref
+
     if sys.platform == "win32":
         os.system("")
+
+    loop_ref = asyncio.get_running_loop()
 
     print(f"Connecting to {url} ...")
     frame_count = 0
@@ -28,7 +56,12 @@ async def main(url):
     fps_time = time.time()
 
     async with websockets.connect(url) as ws:
+        ws_ref = ws
         print("Connected!\n")
+
+        # Start keyboard reader thread
+        threading.Thread(target=keyboard_reader, daemon=True).start()
+
         async for message in ws:
             frame_count += 1
             fps_counter += 1
@@ -42,6 +75,8 @@ async def main(url):
             if frame_count % 25 != 0:
                 continue
 
+            io7a = "ON" if io7_state["A"] else "OFF"
+            io7b = "ON" if io7_state["B"] else "OFF"
             header = f"  RX: {fps} msg/sec  |  Frame: #{frame_count}  |  Size: {len(message)} bytes"
             output = (
                 CLEAR_SCREEN
@@ -52,7 +87,7 @@ async def main(url):
                 + "-" * 70 + "\n\n"
                 + message + "\n\n"
                 + "-" * 70 + "\n"
-                + "  Ctrl+C to quit\n"
+                + f"  [A] IO7-A: {io7a}  [B] IO7-B: {io7b}  |  Ctrl+C to quit\n"
             )
             sys.stdout.write(output)
             sys.stdout.flush()

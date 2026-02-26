@@ -154,7 +154,9 @@ struct TrackerInstance {
 - `getKeyPress()` 使用 `_kbhit()` / `_getch()` 非阻塞讀取（L188-195）
 - `[1]`-`[9]`：切換場景
 - `[L]`：列出所有場景
-- `[O]`：切換 IO7 Output
+- `[A]`：切換 Tag A IO7 Output
+- `[B]`：切換 Tag B IO7 Output
+- `[O]`：切換所有 IO7 Output
 - `[Q]`：退出程式
 
 ### 2.6 輸出格式更新
@@ -392,10 +394,12 @@ Topbar 新增 4 個切換按鈕，修正追蹤資料的旋轉對應：
 
 ### 7.2 支援的控制指令
 
-| Web UI 按鈕 | WebSocket 訊息 | C++ 動作 |
-|------------|---------------|----------|
+| Web UI 按鈕 / Client 指令 | WebSocket 訊息 | C++ 動作 |
+|---------------------------|---------------|----------|
 | SCENE 1/2/3 | `{"type":"keypress","key":"1"}` | `switchScene()` 切換場景 |
-| IO7 Toggle | `{"type":"keypress","key":"O"}` | 切換 IO7 Output 狀態 |
+| IO7 Toggle All | `{"type":"keypress","key":"O"}` | 切換所有 IO7 Output 狀態 |
+| IO7 Tag A | `{"io7":"A1"}` | Tag A IO7 → High (toggle) |
+| IO7 Tag B | `{"io7":"B1"}` | Tag B IO7 → High (toggle) |
 
 **成效**：
 - 使用者無需在 C++ 主控台和網頁之間切換，所有主要操作都可以在 Web 介面完成
@@ -996,10 +1000,12 @@ START
   │
   └── MAIN LOOP (500 Hz) (L405-666)
       │
-      ├── [鍵盤輸入] (L407-443)
+      ├── [鍵盤輸入] (L407-470)
       │   ├── Q → 退出
       │   ├── L → 列出場景
-      │   ├── O → 切換 IO7 Output
+      │   ├── A → 切換 Tag A IO7 Output
+      │   ├── B → 切換 Tag B IO7 Output
+      │   ├── O → 切換所有 IO7 Output
       │   └── 1-9 → switchScene()
       │
       ├── [裝置更新] (L445-530)
@@ -1291,6 +1297,99 @@ C++ --json stdout → pipe → data_server.py → WebSocket → 軟體組程式
 | `RunWSClient.bat` | 新建 | WebSocket client 啟動器 |
 | `SOFTWARE_GUIDE.md` | 新建 | 軟體組使用指南 |
 | `DEV_DISCUSSION.md` | 新建 | 開發討論紀錄 |
+
+---
+
+## Phase 11：IO7 Per-device 控制 (2026-02-26)
+
+**目標**：支援透過鍵盤或 WebSocket 指令，獨立控制各裝置（Tag A / Tag B）的 IO7 輸出。
+
+### 11.1 C++ 端 — Per-device IO7 Toggle
+
+原本只有 `O` 鍵統一切換所有 IO7，現新增 `A`/`B` 鍵分別控制：
+
+```cpp
+// TrackingMinimalDemoCpp.cpp — 'A' 鍵 toggle Tag A IO7
+} else if (key == 'a' || key == 'A') {
+    for (auto& hw : hwExtensions) {
+        if (hw.type == "A" && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+            hw.io7State = !hw.io7State;
+            hw.outputPinIO7.setState(hw.io7State
+                ? PinState::High : PinState::Low);
+            break;
+        }
+    }
+}
+```
+
+**鍵盤操作更新：**
+
+| 按鍵 | 功能 |
+|------|------|
+| `A` | 切換 Tag A（刺針）IO7 Output |
+| `B` | 切換 Tag B（頭盔）IO7 Output |
+| `O` | 切換所有 IO7 Output（保留向下相容） |
+
+### 11.2 WebSocket IO7 控制協議
+
+新增 `{"io7":"..."}` JSON 指令格式，供 Client 端控制特定裝置 IO7：
+
+| 指令 | 說明 |
+|------|------|
+| `{"io7":"A1"}` / `{"io7":"A0"}` | Tag A IO7 → High / Low |
+| `{"io7":"B1"}` / `{"io7":"B0"}` | Tag B IO7 → High / Low |
+
+**實作方式：** Python server 收到指令後，提取 Tag 字母（`A` 或 `B`），透過 PowerShell `SendKeys` 發送對應按鍵到 C++ 視窗。
+
+### 11.3 data_server.py — 雙向通訊
+
+原本為 send-only WebSocket handler，現新增接收端處理：
+
+```python
+async for message in websocket:
+    data = json.loads(message)
+    io7_cmd = data.get("io7", "")
+    if io7_cmd in ("A1", "A0", "B1", "B0"):
+        send_key_to_tracker(io7_cmd[0].lower())
+```
+
+- 新增 `send_key_to_tracker()` 函式（與 pipe_server.py 相同機制）
+- 新增 client message 日誌（含時間戳與來源 IP）
+- 需 BAT 設定視窗標題為 `MANPADS_DataServer`
+
+### 11.4 pipe_server.py — io7 協議擴充
+
+在原有 keypress 協議之外，新增 io7 協議支援：
+
+```python
+io7_cmd = data.get("io7", "")
+if io7_cmd in ("A1", "A0", "B1", "B0"):
+    send_key_to_tracker(io7_cmd[0].lower())
+```
+
+### 11.5 ws_client.py — 鍵盤互動
+
+WebSocket 連線驗證工具新增鍵盤互動功能：
+
+- 獨立 `keyboard_reader` 線程（`msvcrt.kbhit()` + `msvcrt.getch()`）
+- 按 `A` / `B` 鍵 toggle 對應裝置的 IO7
+- 透過 `asyncio.run_coroutine_threadsafe()` 跨線程發送 WebSocket 訊息
+- 底部狀態列顯示 IO7 狀態：`[A] IO7-A: ON  [B] IO7-B: OFF`
+
+### 11.6 monitor.py — 提示文字更新
+
+底部快捷鍵提示從 `[O] Toggle IO7` 更新為 `[A] IO7-A  [B] IO7-B  [O] IO7-All`。
+
+### 11.7 修改的檔案
+
+| 檔案 | 動作 | 說明 |
+|------|------|------|
+| `TrackingMinimalDemoCpp.cpp` | 修改 | 新增 A/B 鍵 per-device IO7 toggle |
+| `web/data_server.py` | 修改 | 雙向通訊 + io7 指令 + send_key_to_tracker() |
+| `web/pipe_server.py` | 修改 | 新增 io7 協議支援 |
+| `web/ws_client.py` | 修改 | 鍵盤 A/B toggle + IO7 狀態顯示 |
+| `web/monitor.py` | 修改 | 底部快捷鍵提示更新 |
+| `SOFTWARE_GUIDE.md` | 修改 | 新增 IO7 控制指令章節 |
 
 ---
 

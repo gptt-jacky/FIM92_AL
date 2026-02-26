@@ -103,6 +103,9 @@ async def ws_handler(websocket):
                 data = json.loads(message)
                 if data.get('type') == 'keypress':
                     send_key_to_tracker(data.get('key'))
+                io7_cmd = data.get("io7", "")
+                if io7_cmd in ("A1", "A0", "B1", "B0"):
+                    send_key_to_tracker(io7_cmd[0].lower())
             except:
                 pass
     except:

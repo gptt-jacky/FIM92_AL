@@ -103,8 +103,37 @@ C++ JSON 輸出同時保留：
 - BAT 啟動時互動式詢問 Host / Port，直接 Enter 用預設值
 - Client 端啟動時輸入 Server IP 即可連線
 
+### 9. IO7 Per-device 控制
+
+**需求：** 軟體組需要能透過 WebSocket 指令獨立控制各裝置（Tag A / Tag B）的 IO7 輸出，而非只能統一開關。
+
+**C++ 端實作：**
+- 原有 `O` 鍵統一切換所有 HW Extension 的 IO7
+- 新增 `A`/`B` 鍵，透過 `hw.type` 匹配找到對應的 HWExtInstance，獨立 toggle 其 `io7State`
+- 每個 HWExtInstance 有自己的 `io7State` 布林值，互不影響
+
+**WebSocket 協議設計：**
+- 新增 `{"io7":"A1"}` / `{"io7":"B0"}` 格式（與原有 `{"type":"keypress","key":"O"}` 並存）
+- 格式：`io7` 值 = Tag 字母 + 目標狀態（`1`=High, `0`=Low）
+- Python server 收到後提取 Tag 字母，轉為小寫按鍵送給 C++
+
+**實作方式選擇：**
+- ~~方案 A: Python 直接透過 serial/USB 控制 IO~~ — 不可行，IO 由 C++ SDK 管理
+- **方案 B: PowerShell SendKeys 模擬鍵盤** ✓ — 與現有場景切換機制一致，實作成本最低
+
+**雙向通訊擴展：**
+- `data_server.py` 從 send-only 升級為雙向（接收 client message + 日誌記錄）
+- `pipe_server.py` 新增 io7 協議（與現有 keypress 協議並行）
+- `ws_client.py` 新增鍵盤互動（A/B 鍵 toggle）作為測試工具
+
+**注意事項：**
+- IO7 在 C++ 端為 toggle 機制（每次按鍵翻轉一次），指令中的 `1`/`0` 僅作為語義區分
+- 建議 client 端搭配回傳 `io` 欄位確認實際狀態
+- 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
+
 ## 日期
 
 - 初始討論：2026-02-25
 - 實作完成：2026-02-25
 - 效能優化：2026-02-25
+- IO7 per-device 控制：2026-02-26
