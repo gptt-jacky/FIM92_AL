@@ -100,7 +100,7 @@ Server Port [8765]: 8765
 | 位址 | `ws://<server-ip>:<port>`（預設 port 8765） |
 | Frame 類型 | Text frame |
 | 方向 | Server → Client 單向推送 |
-| 更新頻率 | ~500 msg/sec |
+| 更新頻率 | ~128 msg/sec |
 | 編碼 | UTF-8 |
 
 ---
@@ -306,9 +306,16 @@ netsh advfirewall firewall add rule name="FIM92 DataServer" dir=in action=allow 
 
 ---
 
+## 多 Client 連線（多人共訓）
+
+- 多個 Client 可同時連線到同一個 Server，接收完全相同的資料
+- 無硬性連線數量限制（建議 < 10）
+- 每個 Client 連線後自動開始接收，不需額外指令
+
+---
+
 ## 注意事項
 
 - 裝置未連接時，`trackers` 陣列為空 `[]`
 - 每個 Tracker 的 IO 是獨立的，透過硬體 Type 屬性自動配對
 - Server 端需保持 `RunDataServer.bat` 視窗開啟
-- 多個 Client 可同時連線接收相同資料
