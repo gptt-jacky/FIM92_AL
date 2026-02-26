@@ -22,6 +22,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 clients = set()
 latest_data = None
+new_data_event = None  # asyncio.Event, set from stdin_reader thread
 
 # Load scenes.json for environmentData injection
 scenes_env = {}
@@ -47,21 +48,22 @@ def send_key_to_tracker(key):
     # 在獨立執行緒中執行，避免卡住 WebSocket 廣播迴圈
     threading.Thread(target=_run, daemon=True).start()
 
-async def broadcast(data):
-    if clients:
-        await asyncio.gather(
-            *[c.send(data) for c in clients.copy()],
-            return_exceptions=True
-        )
-
 def inject_env_data(raw_json):
-    """Inject environmentData from scenes.json into tracker JSON"""
+    """Inject environmentData using fast string operation (no json.loads/dumps)"""
     try:
-        data = json.loads(raw_json)
-        scene_id = data.get('scene')
-        if scene_id and scene_id in scenes_env and 'envData' not in data:
-            data['envData'] = scenes_env[scene_id]
-            return json.dumps(data, separators=(',', ':'))
+        # Quick extract scene id: find "scene":N
+        idx = raw_json.find('"scene":')
+        if idx == -1 or 'envData' in raw_json:
+            return raw_json
+        num_start = idx + 8
+        num_end = num_start
+        while num_end < len(raw_json) and raw_json[num_end].isdigit():
+            num_end += 1
+        scene_id = int(raw_json[num_start:num_end])
+        env = scenes_env.get(scene_id)
+        if env:
+            # Insert envData before closing }
+            return raw_json[:-1] + ',"envData":"' + env + '"}'
     except:
         pass
     return raw_json
@@ -82,7 +84,7 @@ def stdin_reader(loop):
             if line.startswith('{') and line.endswith('}'):
                 line = inject_env_data(line)
                 latest_data = line
-                asyncio.run_coroutine_threadsafe(broadcast(line), loop)
+                loop.call_soon_threadsafe(new_data_event.set)
 
 async def ws_handler(websocket):
     """WebSocket handler - new API (websockets 10+)"""
@@ -120,8 +122,22 @@ def run_http():
     with socketserver.TCPServer(('', PORT_HTTP), Handler) as s:
         s.serve_forever()
 
+async def broadcast_loop():
+    """Broadcast latest data whenever stdin_reader signals new data"""
+    while True:
+        await new_data_event.wait()
+        new_data_event.clear()
+        data = latest_data
+        if data and clients:
+            await asyncio.gather(
+                *[c.send(data) for c in clients.copy()],
+                return_exceptions=True
+            )
+
 async def main():
+    global new_data_event
     loop = asyncio.get_event_loop()
+    new_data_event = asyncio.Event()
 
     # HTTP server
     threading.Thread(target=run_http, daemon=True).start()
@@ -136,6 +152,9 @@ async def main():
     print(f"  WS:   ws://localhost:{PORT_WS}")
     print("  Waiting for stdin...")
     print("="*50)
+
+    # Start broadcast loop
+    asyncio.create_task(broadcast_loop())
 
     async with websockets.serve(ws_handler, "0.0.0.0", PORT_WS):
         await asyncio.Future()  # run forever
