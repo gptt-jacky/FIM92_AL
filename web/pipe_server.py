@@ -78,13 +78,17 @@ def stdin_reader(loop):
         if not chunk:
             break
         remainder += chunk
+        # Process all complete lines, keep only the last valid JSON
+        last_valid = None
         while b"\n" in remainder:
             line_bytes, remainder = remainder.split(b"\n", 1)
             line = line_bytes.decode("utf-8", errors="replace").strip()
             if line.startswith('{') and line.endswith('}'):
-                line = inject_env_data(line)
-                latest_data = line
-                loop.call_soon_threadsafe(new_data_event.set)
+                last_valid = line
+        # Only signal once per os.read() chunk with the latest data
+        if last_valid:
+            latest_data = inject_env_data(last_valid)
+            loop.call_soon_threadsafe(new_data_event.set)
 
 async def ws_handler(websocket):
     """WebSocket handler - new API (websockets 10+)"""
