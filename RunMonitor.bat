@@ -1,7 +1,7 @@
 @echo off
-title FIM92_Monitor
+title MANPADS_Monitor
 chcp 65001 >nul 2>&1
-echo === FIM92 Tracking Monitor ===
+echo === MANPADS Tracking Monitor ===
 echo.
 echo Loading...
 echo.

@@ -1,5 +1,5 @@
 """
-FIM92 Pipe WebSocket Server
+MANPADS Pipe WebSocket Server
 Read C++ output from stdin, broadcast to WebSocket
 Zero file I/O!
 
@@ -37,11 +37,11 @@ except Exception as e:
 def send_key_to_tracker(key):
     """
     Uses PowerShell to send a keystroke to the C++ console window.
-    Requires the window title to be 'FIM92_Tracker_Window'.
+    Requires the window title to be 'MANPADS_Tracker_Window'.
     """
     def _run():
         # 使用 PowerShell 發送按鍵 (確保修復 cscript /C 錯誤)
-        cmd = f"powershell -noprofile -command \"$w=New-Object -ComObject WScript.Shell; if($w.AppActivate('FIM92_Tracker_Window')){{$w.SendKeys('{key}')}}\""
+        cmd = f"powershell -noprofile -command \"$w=New-Object -ComObject WScript.Shell; if($w.AppActivate('MANPADS_Tracker_Window')){{$w.SendKeys('{key}')}}\""
         subprocess.run(cmd, shell=True)
     
     # 在獨立執行緒中執行，避免卡住 WebSocket 廣播迴圈
@@ -130,7 +130,7 @@ async def main():
     threading.Thread(target=stdin_reader, args=(loop,), daemon=True).start()
 
     print("="*50)
-    print("FIM92 Pipe WebSocket Server")
+    print("MANPADS Pipe WebSocket Server")
     print("="*50)
     print(f"  HTTP: http://localhost:{PORT_HTTP}")
     print(f"  WS:   ws://localhost:{PORT_WS}")

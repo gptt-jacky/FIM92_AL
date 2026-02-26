@@ -1,5 +1,5 @@
 """
-FIM92 Data Server — High-speed stdin to WebSocket forwarder
+MANPADS Data Server — High-speed stdin to WebSocket forwarder
 For software team integration. No HTTP server, no web viewer.
 
 Usage:
@@ -165,7 +165,7 @@ async def main(host, port):
     asyncio.ensure_future(broadcast_loop())
 
     print("=" * 50)
-    print("FIM92 Data Server (for Software Team)")
+    print("MANPADS Data Server (for Software Team)")
     print("=" * 50)
     print(f"  Host: {host}")
     print(f"  Port: {port}")
@@ -178,7 +178,7 @@ async def main(host, port):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="FIM92 Data Server")
+    parser = argparse.ArgumentParser(description="MANPADS Data Server")
     parser.add_argument("--host", default=DEFAULT_HOST,
                         help=f"Bind address (default: {DEFAULT_HOST})")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,

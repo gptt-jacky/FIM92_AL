@@ -1,5 +1,5 @@
 """
-FIM92 WebSocket Server - Fast Mode
+MANPADS WebSocket Server - Fast Mode
 Read file and broadcast, with envData injection
 """
 import asyncio
@@ -63,7 +63,7 @@ def inject_env_data_fast(raw_json):
 def send_key_to_tracker(key):
     """Uses PowerShell to send a keystroke to the C++ console window."""
     def _run():
-        cmd = f"powershell -noprofile -command \"$w=New-Object -ComObject WScript.Shell; if($w.AppActivate('FIM92_Tracker_Window')){{$w.SendKeys('{key}')}}\""
+        cmd = f"powershell -noprofile -command \"$w=New-Object -ComObject WScript.Shell; if($w.AppActivate('MANPADS_Tracker_Window')){{$w.SendKeys('{key}')}}\""
         subprocess.run(cmd, shell=True)
     threading.Thread(target=_run, daemon=True).start()
 
@@ -126,7 +126,7 @@ def run_http():
 async def main():
     threading.Thread(target=run_http, daemon=True).start()
     print("="*50)
-    print("FIM92 WebSocket Server (Fast Mode)")
+    print("MANPADS WebSocket Server (Fast Mode)")
     print("="*50)
     print(f"  HTTP: http://localhost:{PORT_HTTP}")
     print(f"  WS:   ws://localhost:{PORT_WS}")

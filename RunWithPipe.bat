@@ -1,7 +1,7 @@
 @echo off
-title FIM92_Tracker_Window
+title MANPADS_Tracker_Window
 chcp 65001 >nul 2>&1
-echo === FIM92 Tracking - Pipe Mode (Zero File I/O) ===
+echo === MANPADS Tracking - Pipe Mode (Zero File I/O) ===
 echo.
 echo [!] Need: pip install websockets
 echo.

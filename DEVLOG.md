@@ -1,6 +1,6 @@
-# FIM92 開發紀錄 (Development Log)
+# MANPADS 開發紀錄 (Development Log)
 
-本文件為 FIM92 Antilatency Tracking System 的完整開發記錄，包含所有階段的技術細節與變更歷程。
+本文件為 MANPADS Antilatency Tracking System 的完整開發記錄，包含所有階段的技術細節與變更歷程。
 
 ---
 
@@ -386,7 +386,7 @@ Topbar 新增 4 個切換按鈕，修正追蹤資料的旋轉對應：
 2. **WebSocket 訊息**：JavaScript 發送 `{"type": "keypress", "key": "2"}` 給 Python
 3. **Python 伺服器解析**：`pipe_server.py` 的 `ws_handler()` 接收並解析 JSON（L86-93）
 4. **發送按鍵**：`send_key_to_tracker()` 透過 PowerShell `WScript.Shell.SendKeys()` 送到 C++ 視窗
-   - 需要 C++ 視窗標題為 `FIM92_Tracker_Window`（由 `.bat` 的 `title` 命令設定）
+   - 需要 C++ 視窗標題為 `MANPADS_Tracker_Window`（由 `.bat` 的 `title` 命令設定）
    - 在獨立 daemon 線程執行，避免阻塞 WebSocket 迴圈
 5. **C++ 接收**：主迴圈的 `getKeyPress()` 讀取到按鍵，執行對應動作
 
@@ -491,7 +491,7 @@ def stdin_reader(loop):
 ### 9.3 RunWithPipe.bat 流程
 
 ```batch
-title FIM92_Tracker_Window          # 設定視窗標題（PowerShell SendKeys 需要）
+title MANPADS_Tracker_Window          # 設定視窗標題（PowerShell SendKeys 需要）
 chcp 65001                          # UTF-8 編碼
 cd /d "%~dp0build\Release"          # 切換到 build 目錄
 copy /Y scenes.json                 # 複製最新 scenes.json

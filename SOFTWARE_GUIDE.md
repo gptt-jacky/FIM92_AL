@@ -1,4 +1,4 @@
-# FIM92 軟體組資料介面使用指南
+# MANPADS 軟體組資料介面使用指南
 
 ## 環境需求
 
@@ -39,7 +39,7 @@
 雙擊 `RunDataServer.bat`，會詢問網路設定：
 
 ```
-=== FIM92 Data Server (for Software Team) ===
+=== MANPADS Data Server (for Software Team) ===
 
 Server Host [0.0.0.0]: _
 Server Port [8765]: _
@@ -77,7 +77,7 @@ Server Port [8765]: _
 可用 `RunWSClient.bat` 快速測試連線：
 
 ```
-=== FIM92 WebSocket Client ===
+=== MANPADS WebSocket Client ===
 
 Server Host [localhost]: 192.168.1.100
 Server Port [8765]: 8765
@@ -287,7 +287,7 @@ ws.onmessage = (event) => {
 ### Windows 防火牆
 
 ```powershell
-netsh advfirewall firewall add rule name="FIM92 DataServer" dir=in action=allow protocol=tcp localport=8765
+netsh advfirewall firewall add rule name="MANPADS DataServer" dir=in action=allow protocol=tcp localport=8765
 ```
 
 ---

@@ -1,5 +1,5 @@
 """
-FIM92 WebSocket Client — verify raw JSON data from data_server.py
+MANPADS WebSocket Client — verify raw JSON data from data_server.py
 
 Usage:
   python ws_client.py
@@ -46,7 +46,7 @@ async def main(url):
             output = (
                 CLEAR_SCREEN
                 + "=" * 70 + "\n"
-                + "  FIM92 WebSocket Client\n"
+                + "  MANPADS WebSocket Client\n"
                 + "=" * 70 + "\n"
                 + header + "\n"
                 + "-" * 70 + "\n\n"
@@ -59,7 +59,7 @@ async def main(url):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="FIM92 WebSocket Client")
+    parser = argparse.ArgumentParser(description="MANPADS WebSocket Client")
     parser.add_argument("--url", default="ws://localhost:8765",
                         help="WebSocket URL (default: ws://localhost:8765)")
     args = parser.parse_args()

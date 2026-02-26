@@ -1,5 +1,5 @@
 """
-FIM92 Console Monitor — 原地刷新顯示所有 Tracker + IO 狀態
+MANPADS Console Monitor — 原地刷新顯示所有 Tracker + IO 狀態
 從 stdin 讀取 C++ JSON 輸出，解析後以清晰的多行格式顯示
 
 Usage: TrackingMinimalDemo.exe --json scenes.json | python monitor.py
@@ -62,7 +62,7 @@ def render(data, frame_count, fps):
     io_global = data.get("io", {})
 
     lines.append(f"{BOLD}{'=' * 70}{RESET}")
-    lines.append(f"{BOLD}  FIM92 Tracking Monitor{RESET}    Scene: [{scene}] {scene_name}    FPS: {fps}")
+    lines.append(f"{BOLD}  MANPADS Tracking Monitor{RESET}    Scene: [{scene}] {scene_name}    FPS: {fps}")
     lines.append(f"{BOLD}{'=' * 70}{RESET}")
 
     # ---- Trackers ----

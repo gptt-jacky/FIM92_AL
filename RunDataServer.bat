@@ -1,7 +1,7 @@
 @echo off
-title FIM92_DataServer
+title MANPADS_DataServer
 chcp 65001 >nul 2>&1
-echo === FIM92 Data Server (for Software Team) ===
+echo === MANPADS Data Server (for Software Team) ===
 echo.
 
 set WS_HOST=0.0.0.0

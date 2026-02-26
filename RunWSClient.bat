@@ -1,7 +1,7 @@
 @echo off
-title FIM92_WS_Client
+title MANPADS_WS_Client
 chcp 65001 >nul 2>&1
-echo === FIM92 WebSocket Client ===
+echo === MANPADS WebSocket Client ===
 echo.
 
 set WS_HOST=localhost
