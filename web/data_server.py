@@ -31,12 +31,8 @@ rx_count = 0
 tx_fps = 0
 rx_fps = 0
 
-# Tag mapping: Type -> Tag letter
-TAG_MAP = {
-    "Stinger": "A",
-    "Helmet": "B",
-    "Binoculars": "C",
-}
+# Tag = Type directly (A/B/C/D set in AntilatencyService)
+VALID_TAGS = {"A", "B", "C", "D"}
 
 # Pre-compile regex for fast extraction from C++ JSON
 _tracker_re = re.compile(
@@ -67,7 +63,7 @@ def transform_fast(line):
     for m in matches:
         tid, tag, ttype, px, py, pz, rx, ry, rz, rw, io = m
         if not tag:
-            tag = TAG_MAP.get(ttype, "?" + tid)
+            tag = ttype if ttype in VALID_TAGS else "?" + tid
         parts.append(
             f'{{"tag":"{tag}","px":{px},"py":{py},"pz":{pz},'
             f'"rx":{rx},"ry":{ry},"rz":{rz},"rw":{rw},"io":"{io}"}}'

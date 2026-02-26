@@ -207,12 +207,10 @@ std::string getParentPath(const char *inp){
 #endif
 
 // ============================================================
-// Map Type property to Tag letter (A/B/C)
+// Tag = Type property directly (A/B/C/D set in AntilatencyService)
 // ============================================================
 static std::string typeToTag(const std::string& type) {
-    if (type == "Stinger") return "A";
-    if (type == "Helmet") return "B";
-    if (type == "Binoculars") return "C";
+    if (type == "A" || type == "B" || type == "C" || type == "D") return type;
     return "";  // Unknown type, no tag
 }
 

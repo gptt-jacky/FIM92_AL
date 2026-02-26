@@ -17,19 +17,20 @@
 
 ### 2. Tag 映射確認
 
-經討論確認三組裝置的代號：
+經討論確認四組裝置的代號，Type 屬性直接設為 Tag 字母：
 
 | Tag | 裝置 | Antilatency Type 屬性 |
 |-----|------|----------------------|
-| A | 刺針 Stinger | "Stinger" |
-| B | 頭盔 Helmet | "Helmet" |
-| C | 望遠鏡 Binoculars | "Binoculars" |
+| A | 刺針 | "A" |
+| B | 頭盔 | "B" |
+| C | 望遠鏡 | "C" |
+| D | 對講機 | "D" |
 
-映射寫在 C++ `typeToTag()` 函式和 Python `TAG_MAP` 字典中。
+Type 直接作為 Tag，寫在 C++ `typeToTag()` 函式和 Python `VALID_TAGS` / `TAG_INFO` 中。
 
 ### 3. IO per-tracker 架構決策
 
-**問題：** 原始架構只支援一組 HW Extension Module（IO 模組），但實際硬體有多組（A/B/C 各一組），每組 IO 模組對應各自的 Tracker。
+**問題：** 原始架構只支援一組 HW Extension Module（IO 模組），但實際硬體有多組（A/B/C/D 各一組），每組 IO 模組對應各自的 Tracker。
 
 **方案選擇：**
 - ~~方案 A: `nodeGetParent()` parent node 匹配~~ — 過於依賴硬體拓撲

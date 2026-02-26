@@ -1178,20 +1178,19 @@ for (auto& hw : hwExtensions) {
 **Tag 映射**：
 
 ```cpp
-// Type -> Tag letter (L212-217)
+// Type = Tag directly (A/B/C/D set in AntilatencyService)
 static std::string typeToTag(const std::string& type) {
-    if (type == "Stinger") return "A";
-    if (type == "Helmet") return "B";
-    if (type == "Binoculars") return "C";
+    if (type == "A" || type == "B" || type == "C" || type == "D") return type;
     return "";
 }
 ```
 
 | Tag | 裝置 | Type 屬性 |
 |-----|------|-----------|
-| A | 刺針 Stinger | "Stinger" |
-| B | 頭盔 Helmet | "Helmet" |
-| C | 望遠鏡 Binoculars | "Binoculars" |
+| A | 刺針 | "A" |
+| B | 頭盔 | "B" |
+| C | 望遠鏡 | "C" |
+| D | 對講機 | "D" |
 
 **IO 8-bit 字串格式**：`IO1, IO2, IOA3, IOA4, IO5, IO6, IO7(輸出), IO8`
 

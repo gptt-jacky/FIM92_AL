@@ -21,11 +21,12 @@ CYAN = "\033[36m"
 RED = "\033[31m"
 DIM = "\033[2m"
 
-# Tag mapping
-TAG_MAP = {
-    "Stinger": ("A", "刺針"),
-    "Helmet": ("B", "頭盔"),
-    "Binoculars": ("C", "望遠鏡"),
+# Tag = Type directly (A/B/C/D)
+TAG_INFO = {
+    "A": ("A", "刺針"),
+    "B": ("B", "頭盔"),
+    "C": ("C", "望遠鏡"),
+    "D": ("D", "對講機"),
 }
 
 IO_LABELS = ["IO1", "IO2", "IOA3", "IOA4", "IO5", "IO6", "IO7*", "IO8"]
@@ -72,8 +73,8 @@ def render(data, frame_count, fps):
         for t in trackers:
             tid = t.get("id", "?")
             ttype = t.get("type", "")
-            tag_info = TAG_MAP.get(ttype)
-            tag = t.get("tag", tag_info[0] if tag_info else "?")
+            tag = t.get("tag", ttype if ttype in TAG_INFO else "?")
+            tag_info = TAG_INFO.get(tag)
             device_name = tag_info[1] if tag_info else ttype
             stability = t.get("stability", 0)
             io_bits = t.get("io", "--------")
