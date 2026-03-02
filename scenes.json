@@ -1,13 +1,8 @@
 {
     "scenes": [
         {
-            "name": "AL_TEST_3.5M",
-            "environmentData": "AntilatencyAltEnvironmentPillars~AgSfGi-_ANbJuvD1k6YCAAAAAAAAgD-fGi8_ANbJOvD1kyYBAAAAAAAAgD_UeGk-AAAAAG5-UbkCAAAAAAAAgD_WeGm-AAAAAN5fd7kAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
-            "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        },
-        {
-            "name": "AL_TEST_3M",
-            "environmentData": "AntilatencyAltEnvironmentPillars~AgQAAMC_AAAAABgrUqkCAAAAAAAAgD8AAMA_AAAAABgrUikBAAAAAAAAgD-rhb8_AAAAAPb_P8ACAAAAAAAAgD9VesC_AAAAAPb_P8AAAAAAAAAAgD8D16OQPwMBAACAPgEAAAA_AQAAQD8Gc2NoZW1lAAC0Q83MzD0A",
+            "name": "FV_10bars",
+            "environmentData": "AntilatencyAltEnvironmentHorizontalGrid~AgAGC7hTiT_cRqA-r45jvZqZmT4AAAAAAAAAAACamRk_AQoECQIEBAEABQMCAAACBwMFAQEBCgAAAgMCAgAFBwE",
             "placementData": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         }
     ]

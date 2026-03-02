@@ -25,9 +25,9 @@ echo.
 echo Starting...
 echo.
 
-cd /d "%~dp0build\Release"
-copy /Y "%~dp0scenes.json" ".\scenes.json" >nul 2>&1
+cd /d "%~dp0..\build\Release"
+copy /Y "%~dp0..\scenes.json" ".\scenes.json" >nul 2>&1
 
-TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0web\data_server.py" --host %WS_HOST% --port %WS_PORT%
+TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0data_server.py" --host %WS_HOST% --port %WS_PORT%
 
 pause

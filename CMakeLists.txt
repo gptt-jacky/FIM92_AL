@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(TrackingMinimalDemo)
 set(CMAKE_CXX_STANDARD 17)
 include_directories(${CMAKE_SOURCE_DIR}/AntilatencySdk/Api)
-add_executable(TrackingMinimalDemo TrackingMinimalDemoCpp.cpp)
+add_executable(TrackingMinimalDemo src/TrackingMinimalDemoCpp.cpp)
 
 if (WIN32)
     file(GLOB ANTILATENCY_LIBS ${CMAKE_SOURCE_DIR}/AntilatencySdk/Bin/WindowsDesktop/x64/*.dll)

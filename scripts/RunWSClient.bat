@@ -21,6 +21,6 @@ echo.
 echo Connecting to ws://%WS_HOST%:%WS_PORT% ...
 echo.
 
-python "%~dp0web\ws_client.py" --url ws://%WS_HOST%:%WS_PORT%
+python "%~dp0..\web\ws_client.py" --url ws://%WS_HOST%:%WS_PORT%
 
 pause

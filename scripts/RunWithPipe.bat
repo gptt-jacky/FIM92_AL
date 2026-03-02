@@ -6,13 +6,13 @@ echo.
 echo [!] Need: pip install websockets
 echo.
 
-cd /d "%~dp0build\Release"
-copy /Y "%~dp0scenes.json" ".\scenes.json" >nul 2>&1
+cd /d "%~dp0..\build\Release"
+copy /Y "%~dp0..\scenes.json" ".\scenes.json" >nul 2>&1
 
 echo Starting pipe server...
 start "" "http://localhost:8080/viewer_ws.html?v=8"
 
 echo Piping C++ output to WebSocket server...
-TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0web\pipe_server.py"
+TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0..\web\pipe_server.py"
 
 pause

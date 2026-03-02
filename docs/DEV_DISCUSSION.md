@@ -63,15 +63,16 @@ C++ JSON 輸出同時保留：
 
 | 角色 | 檔案 | 用途 |
 |------|------|------|
-| C++ 主程式 | `TrackingMinimalDemoCpp.cpp` | 追蹤 + IO 讀取，輸出完整 JSON |
+| C++ 主程式 | `src/TrackingMinimalDemoCpp.cpp` | 追蹤 + IO 讀取，輸出完整 JSON |
 | 軟體組 Server | `web/data_server.py` | stdin → 精簡 JSON → WebSocket（無 HTTP） |
 | 網頁版 Server | `web/pipe_server.py` | stdin → 完整 JSON → WebSocket + HTTP |
 | Console Monitor | `web/monitor.py` | stdin → 原地刷新 console 顯示 |
 | WebSocket Client | `web/ws_client.py` | 連線驗證工具，顯示原始 JSON |
-| 軟體組 BAT | `RunDataServer.bat` | 啟動 C++ → data_server.py pipe |
-| 網頁版 BAT | `RunWithPipe.bat` | 啟動 C++ → pipe_server.py pipe |
-| 監控 BAT | `RunMonitor.bat` | 啟動 C++ → monitor.py pipe |
-| 驗證 BAT | `RunWSClient.bat` | WebSocket client 連線測試 |
+| 軟體組 BAT | `faymantu/RunDataServer.bat` | 啟動 C++ → data_server.py pipe |
+| 軟體組本地 BAT | `faymantu/RunLocalFile.bat` | 啟動 C++（無 pipe），寫入 tracking_data.json |
+| 網頁版 BAT | `scripts/RunWithPipe.bat` | 啟動 C++ → pipe_server.py pipe |
+| 監控 BAT | `scripts/RunMonitor.bat` | 啟動 C++ → monitor.py pipe |
+| 驗證 BAT | `scripts/RunWSClient.bat` | WebSocket client 連線測試 |
 
 ### 7. Pipe 效能優化
 

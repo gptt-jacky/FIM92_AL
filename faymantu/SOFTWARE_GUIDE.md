@@ -36,7 +36,7 @@
 
 ### 啟動方式
 
-雙擊 `RunDataServer.bat`，會詢問網路設定：
+雙擊 `RunDataServer.bat`（本資料夾內），會詢問網路設定：
 
 ```
 === MANPADS Data Server (for Software Team) ===
@@ -74,7 +74,7 @@ Server Port [8765]: _
 
 ### 測試工具
 
-可用 `RunWSClient.bat` 快速測試連線：
+可用 `RunWSClient.bat`（本資料夾內）快速測試連線：
 
 ```
 === MANPADS WebSocket Client ===
@@ -240,7 +240,7 @@ asyncio.run(toggle_io7())
 - IO7 採 **toggle** 機制：每次發送指令會切換一次狀態（High ↔ Low）
 - 建議搭配回傳的 `io` 欄位第 7 位（`io[6]`）確認實際狀態
 - 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
-- 測試工具 `RunWSClient.bat` 支援鍵盤快捷：按 `A` / `B` 鍵即可 toggle
+- 測試工具 `RunWSClient.bat`（本資料夾內）支援鍵盤快捷：按 `A` / `B` 鍵即可 toggle
 
 ---
 
@@ -368,3 +368,34 @@ netsh advfirewall firewall add rule name="MANPADS DataServer" dir=in action=allo
 - 裝置未連接時，`trackers` 陣列為空 `[]`
 - 每個 Tracker 的 IO 是獨立的，透過硬體 Type 屬性自動配對
 - Server 端需保持 `RunDataServer.bat` 視窗開啟
+
+---
+
+## 方式二：本地檔案讀取（RunLocalFile.bat）
+
+若不使用 WebSocket，可改用本地檔案模式。軟體組直接 poll-read C++ 寫入的 JSON 檔案。
+
+### 啟動方式
+
+雙擊 `RunLocalFile.bat`（本資料夾內），C++ 程式會以標準模式執行（無 --json），並持續將追蹤資料原子覆寫到檔案。
+
+### 資料檔案位置
+
+```
+build/Release/tracking_data.json
+```
+
+### 讀取方式
+
+軟體組程式以固定間隔（建議 5~10ms）讀取 `tracking_data.json` 的完整內容。C++ 使用 atomic write（先寫 `.tmp` 再 `rename`），確保不會讀到不完整的 JSON。
+
+### 資料格式
+
+檔案內的 JSON 為 C++ 完整格式（含 scene、sceneName、id、type、number、stability 等欄位），與 WebSocket 精簡格式不同。
+
+### 注意事項
+
+- 本地檔案模式與 WebSocket 模式**無法同時使用**（同一時間只能啟動一個）
+- C++ 每 ~2ms 覆寫一次檔案，更新率為 500Hz
+- 適合同一台電腦上的整合，不適合跨機器使用（跨機器請用 WebSocket 模式）
+- 按 `[Q]` 鍵可退出 C++ 追蹤程式

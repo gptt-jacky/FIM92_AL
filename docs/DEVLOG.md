@@ -9,8 +9,8 @@
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    Main Application                 │
-│                TrackingMinimalDemoCpp.cpp            │
-│                      (676 行)                       │
+│           src/TrackingMinimalDemoCpp.cpp             │
+│                      (788 行)                       │
 ├──────────┬──────────┬──────────┬────────────────────┤
 │ Scene    │ Multi-   │ HW IO    │ Keyboard           │
 │ Manager  │ Tracker  │ Manager  │ Input              │
@@ -51,13 +51,11 @@
 │                                     │ from scenes.json       │ 反向控制 │
 │                                     └────────────────────────┘         │
 │                                                                        │
-│  Mode 2: WebSocket File (備用, ~20-28 Data/s, ~15-50ms 延遲)          │
-│  ┌──────────────┐  file     ┌───────────────┐  WS    ┌──────────────┐ │
-│  │ C++ 標準模式 │──write───►│server_ws.py   │──8765─►│viewer_ws.html│ │
-│  │ (500Hz 寫檔) │           │1ms polling    │        │ Three.js 3D  │ │
-│  └──────────────┘           │HTTP :8080     │        └──────────────┘ │
-│       │                     └───────────────┘                          │
-│       └── tracking_data.json (atomic write: .tmp → rename)             │
+│  Mode 2: Local File (軟體組本地, 500Hz 檔案)                          │
+│  ┌──────────────┐                                                      │
+│  │ C++ 標準模式 │─── tracking_data.json (atomic write: .tmp → rename) │
+│  │ (500Hz 寫檔) │    軟體組 poll-read 此檔案                           │
+│  └──────────────┘    啟動：faymantu/RunLocalFile.bat                   │
 │                                                                        │
 │  Mode 3: Pure C++ (無 Web UI, 500Hz 檔案 + Console)                   │
 │  ┌──────────────┐                                                      │
@@ -348,13 +346,13 @@ Topbar 新增 4 個切換按鈕，修正追蹤資料的旋轉對應：
 
 ### 6.2 跨電腦通訊支援
 
-- **WebSocket 綁定調整**：Server 綁定 IP 改為 `0.0.0.0`（pipe_server.py L132、server_ws.py L135），允許區域網路內其他電腦連線。
+- **WebSocket 綁定調整**：Server 綁定 IP 改為 `0.0.0.0`（pipe_server.py L132），允許區域網路內其他電腦連線。
 - **前端參數支援**：`viewer_ws.html` 支援 URL 參數 `?host=IP`，例如 `http://localhost:8080?host=192.168.1.100`。
 - **應用場景**：一台電腦負責跑 C++ 追蹤 (連接 Tracker)，另一台輕薄筆電或平板透過瀏覽器監看 3D 畫面。
 
 ### 6.3 場景管理工具 (UpdateScene)
 
-- **新增 `UpdateScene.bat` 與 `update_scene.py`**（151 行）
+- **新增 `scripts/UpdateScene.bat` 與 `scripts/update_scene.py`**（151 行）
 - 提供互動式選單：
   1. List scenes (列出目前場景)
   2. Add / Update a scene (新增或更新場景)
@@ -492,15 +490,15 @@ def stdin_reader(loop):
             asyncio.run_coroutine_threadsafe(broadcast(line), loop)
 ```
 
-### 9.3 RunWithPipe.bat 流程
+### 9.3 scripts/RunWithPipe.bat 流程
 
 ```batch
 title MANPADS_Tracker_Window          # 設定視窗標題（PowerShell SendKeys 需要）
 chcp 65001                          # UTF-8 編碼
-cd /d "%~dp0build\Release"          # 切換到 build 目錄
-copy /Y scenes.json                 # 複製最新 scenes.json
+cd /d "%~dp0..\build\Release"      # 切換到 build 目錄
+copy /Y "%~dp0..\scenes.json"      # 複製最新 scenes.json
 start "" "http://localhost:8080"    # 開啟瀏覽器
-TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0web\pipe_server.py"
+TrackingMinimalDemo.exe --json "..\..\scenes.json" | python "%~dp0..\web\pipe_server.py"
 ```
 
 ### 9.4 效能對比
@@ -603,7 +601,7 @@ if content and content != last_content and clients:
 
 | 欄位 | 值 | 意義 |
 |------|-----|------|
-| `[S1]` | 場景 1 | 目前使用 AL_TEST_3.5M 場景 |
+| `[S1]` | 場景 1 | 目前使用 FV_10bars 場景 |
 | `T1:` | Tracker #1 | Alt Tracker（未設定 Type，若有設定會顯示如 `T1[Stinger]:`） |
 | `P(-0.0000, 1.6800, 0.0000)` | X=0m, Y=1.68m, Z=0m | 位置座標（Y 軸 = 高度），單位：公尺 |
 | `R(-0.6286, 0.0094, -0.3238, 0.7071)` | 四元數 (qx, qy, qz, qw) | 裝置目前的朝向/旋轉 |
@@ -617,7 +615,7 @@ if content and content != last_content and clients:
 ```json
 {
     "scene": 1,
-    "sceneName": "AL_TEST_3.5M",
+    "sceneName": "FV_10bars",
     "trackers": [
         {
             "id": 1,
@@ -845,8 +843,7 @@ std::this_thread::sleep_for(std::chrono::milliseconds(16));
 
 | 按鍵 | 場地名稱 | 說明 |
 |------|----------|------|
-| `1` | AL_TEST_3.5M | 3.5 公尺測試場地 (預設) |
-| `2` | AL_TEST_3M | 3 公尺測試場地 |
+| `1` | FV_10bars | 費曼圖 10 燈柱場地 (HorizontalGrid) |
 
 ### 欄位說明
 
@@ -1069,15 +1066,7 @@ START
 | `send_key_to_tracker(key)` | PowerShell 發送按鍵到 C++ 視窗 |
 | `Handler` | HTTP 伺服器，`/` → viewer_ws.html |
 
-**server_ws.py：**
-
-| 函式/類別 | 說明 |
-|----------|------|
-| `inject_env_data_fast(raw_json)` | 字串操作快速注入 envData |
-| `broadcast_loop()` | 1ms 輪詢 tracking_data.json + WebSocket 廣播 |
-| `ws_handler(websocket)` | WebSocket 連線處理 |
-
-**update_scene.py：**
+**scripts/update_scene.py：**
 
 | 函式 | 說明 |
 |------|------|
@@ -1094,10 +1083,10 @@ START
 
 | 類別 | 檔案數 | 程式碼行數 | 大小 |
 |------|--------|----------|------|
-| C++ 原始碼 | 1 | 676 行 | 28 KB |
-| Python 腳本 | 3 | 434 行 | 17 KB |
+| C++ 原始碼 | 1 | 788 行 | 32 KB |
+| Python 腳本 | 4 | ~500 行 | 20 KB |
 | HTML/Web | 1 | 755 行 | 34 KB |
-| Batch 腳本 | 5 | ~50 行 | 2 KB |
+| Batch 腳本 | 8 | ~80 行 | 3 KB |
 | CMake 設定 | 1 | 28 行 | 1 KB |
 | 文件 | 2 | ~1900 行 | ~80 KB |
 | SDK Headers | 31 | - | - |
@@ -1129,7 +1118,7 @@ cmake -B build -A x64
 cmake --build build --config Release
 
 # 執行 (推薦)
-RunWithPipe.bat
+scripts\RunWithPipe.bat
 
 # 或手動
 cd build\Release
@@ -1287,16 +1276,16 @@ C++ --json stdout → pipe → data_server.py → WebSocket → 軟體組程式
 
 | 檔案 | 動作 | 說明 |
 |------|------|------|
-| `TrackingMinimalDemoCpp.cpp` | 修改 | 多組 HWExtInstance、typeToTag()、per-tracker IO、setvbuf |
+| `src/TrackingMinimalDemoCpp.cpp` | 修改 | 多組 HWExtInstance、typeToTag()、per-tracker IO、setvbuf |
 | `web/data_server.py` | 新建 | 軟體組 WebSocket 轉發器 |
 | `web/monitor.py` | 新建 | 原地刷新 console 監控器 |
 | `web/ws_client.py` | 新建 | WebSocket 連線驗證工具 |
 | `web/pipe_server.py` | 修改 | os.read() unbuffered stdin |
-| `RunDataServer.bat` | 新建 | 軟體組啟動器 |
-| `RunMonitor.bat` | 新建 | Console 監控器啟動器 |
-| `RunWSClient.bat` | 新建 | WebSocket client 啟動器 |
-| `SOFTWARE_GUIDE.md` | 新建 | 軟體組使用指南 |
-| `DEV_DISCUSSION.md` | 新建 | 開發討論紀錄 |
+| `scripts/RunDataServer.bat` | 新建 | 軟體組啟動器 |
+| `scripts/RunMonitor.bat` | 新建 | Console 監控器啟動器 |
+| `scripts/RunWSClient.bat` | 新建 | WebSocket client 啟動器 |
+| `docs/SOFTWARE_GUIDE.md` | 新建 | 軟體組使用指南 |
+| `docs/DEV_DISCUSSION.md` | 新建 | 開發討論紀錄 |
 
 ---
 
@@ -1384,12 +1373,12 @@ WebSocket 連線驗證工具新增鍵盤互動功能：
 
 | 檔案 | 動作 | 說明 |
 |------|------|------|
-| `TrackingMinimalDemoCpp.cpp` | 修改 | 新增 A/B 鍵 per-device IO7 toggle |
+| `src/TrackingMinimalDemoCpp.cpp` | 修改 | 新增 A/B 鍵 per-device IO7 toggle |
 | `web/data_server.py` | 修改 | 雙向通訊 + io7 指令 + send_key_to_tracker() |
 | `web/pipe_server.py` | 修改 | 新增 io7 協議支援 |
 | `web/ws_client.py` | 修改 | 鍵盤 A/B toggle + IO7 狀態顯示 |
 | `web/monitor.py` | 修改 | 底部快捷鍵提示更新 |
-| `SOFTWARE_GUIDE.md` | 修改 | 新增 IO7 控制指令章節 |
+| `docs/SOFTWARE_GUIDE.md` | 修改 | 新增 IO7 控制指令章節 |
 
 ---
 
