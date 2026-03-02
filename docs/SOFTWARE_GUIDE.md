@@ -74,7 +74,7 @@ Server Port [8765]: _
 
 ### 測試工具
 
-可用 `faymantu/RunWSClient.bat`（或 `scripts/RunWSClient.bat`）快速測試連線：
+可用 `faymantu/RunWSClient.bat` 快速測試連線：
 
 ```
 === MANPADS WebSocket Client ===

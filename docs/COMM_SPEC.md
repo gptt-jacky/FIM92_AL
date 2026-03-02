@@ -259,7 +259,7 @@ ws://192.168.1.100:8765
 
 ### 連線測試工具
 
-可用 `faymantu/RunWSClient.bat`（或 `scripts/RunWSClient.bat`）快速驗證連線：
+可用 `faymantu/RunWSClient.bat` 快速驗證連線：
 
 ```
 === MANPADS WebSocket Client ===

@@ -72,7 +72,7 @@ C++ JSON 輸出同時保留：
 | 軟體組本地 BAT | `faymantu/RunLocalFile.bat` | 啟動 C++（無 pipe），寫入 tracking_data.json |
 | 網頁版 BAT | `scripts/RunWithPipe.bat` | 啟動 C++ → pipe_server.py pipe |
 | 監控 BAT | `scripts/RunMonitor.bat` | 啟動 C++ → monitor.py pipe |
-| 驗證 BAT | `scripts/RunWSClient.bat` | WebSocket client 連線測試 |
+| 驗證 BAT | `faymantu/RunWSClient.bat` | WebSocket client 連線測試 |
 
 ### 7. Pipe 效能優化
 
