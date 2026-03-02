@@ -362,12 +362,13 @@ FIM92_C++/
 │   └── DEVLOG.md                 # 詳細開發紀錄
 │
 ├── faymantu/                     # 費曼圖軟體組專用資料夾
+│   ├── COMM_SPEC.md              # 通訊規格書
+│   ├── SOFTWARE_GUIDE.md         # 軟體組操作手冊
 │   ├── RunDataServer.bat         # 軟體組啟動器：WebSocket 模式
 │   ├── RunLocalFile.bat          # 軟體組啟動器：本地檔案模式
 │   ├── RunWSClient.bat           # WebSocket 連線測試
 │   ├── data_server.py            # 精簡 JSON WebSocket 伺服器
-│   ├── ws_client.py              # WebSocket 連線驗證工具
-│   └── SOFTWARE_GUIDE.md         # 軟體組使用指南 (獨立副本)
+│   └── ws_client.py              # WebSocket 連線驗證工具
 │
 ├── web/                          # Web 前端與 Pipe 伺服器
 │   ├── viewer_ws.html            # 3D 視覺化頁面 (Three.js + WebSocket)

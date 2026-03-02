@@ -389,22 +389,22 @@ Client 可透過 WebSocket 發送 JSON 指令，控制指定裝置的 IO7 輸出
 
 ### WebSocket 模式
 
-1. 追蹤主機雙擊 `faymantu/RunDataServer.bat`
+1. 追蹤主機雙擊 `RunDataServer.bat`
 2. 按 Enter 使用預設設定（Host: `0.0.0.0`、Port: `8765`）
 3. Client 連線到 `ws://<Server IP>:8765`
 
 ### 本地檔案模式
 
-1. 同一台電腦雙擊 `faymantu/RunLocalFile.bat`
+1. 同一台電腦雙擊 `RunLocalFile.bat`
 2. 軟體組程式讀取 `build/Release/tracking_data.json`
 
 ### 連線測試
 
-1. 雙擊 `faymantu/RunWSClient.bat`
+1. 雙擊 `RunWSClient.bat`
 2. 輸入 Server IP
 3. 確認畫面顯示 JSON 資料且 RX ~128 msg/sec
 
-> 詳細操作步驟、程式碼範例請見 `faymantu/SOFTWARE_GUIDE.md`。
+> 詳細操作步驟、程式碼範例請見 [SOFTWARE_GUIDE.md](SOFTWARE_GUIDE.md)。
 
 ---
 
