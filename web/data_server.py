@@ -37,6 +37,9 @@ rx_fps = 0
 # Tag = Type directly (A/B/C/D set in AntilatencyService)
 VALID_TAGS = {"A", "B", "C", "D"}
 
+# IO7 state tracking: {"A": "0", "B": "1", ...}
+io7_state = {}
+
 # Pre-compile regex for fast extraction from C++ JSON
 _tracker_re = re.compile(
     r'\{"id":(\d+),'
@@ -78,6 +81,7 @@ def send_key_to_tracker(key):
 
 def transform_fast(line):
     """Fast string-level transform via regex, no json.loads/json.dumps."""
+    global io7_state
     matches = _tracker_re.findall(line)
     if not matches and '"trackers":[]' not in line:
         return None
@@ -87,6 +91,9 @@ def transform_fast(line):
         tid, tag, ttype, px, py, pz, rx, ry, rz, rw, io = m
         if not tag:
             tag = ttype if ttype in VALID_TAGS else "?" + tid
+        # Track IO7 state (io[6]) per tag
+        if len(io) > 6 and tag in VALID_TAGS:
+            io7_state[tag] = io[6]
         parts.append(
             f'{{"tag":"{tag}","px":{px},"py":{py},"pz":{pz},'
             f'"rx":{rx},"ry":{ry},"rz":{rz},"rw":{rw},"io":"{io}"}}'
@@ -152,7 +159,11 @@ async def ws_handler(websocket):
                 data = json.loads(message)
                 io7_cmd = data.get("io7", "")
                 if io7_cmd in ("A1", "A0", "B1", "B0"):
-                    send_key_to_tracker(io7_cmd[0].lower())
+                    tag = io7_cmd[0]      # "A" or "B"
+                    desired = io7_cmd[1]  # "1" or "0"
+                    current = io7_state.get(tag, "0")
+                    if current != desired:
+                        send_key_to_tracker(tag.lower())
             except Exception:
                 pass
     except Exception:

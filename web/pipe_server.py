@@ -24,6 +24,9 @@ clients = set()
 latest_data = None
 new_data_event = None  # asyncio.Event, set from stdin_reader thread
 
+# IO7 state tracking: {"A": "0", "B": "1", ...}
+io7_state = {}
+
 # Load scenes.json for environmentData injection
 scenes_env = {}
 try:
@@ -88,6 +91,16 @@ def stdin_reader(loop):
         # Only signal once per os.read() chunk with the latest data
         if last_valid:
             latest_data = inject_env_data(last_valid)
+            # Extract IO7 state per tag from the full C++ JSON
+            try:
+                parsed = json.loads(last_valid)
+                for t in parsed.get("trackers", []):
+                    tag = t.get("tag", "") or t.get("type", "")
+                    io = t.get("io", "")
+                    if len(io) > 6 and tag in ("A", "B", "C", "D"):
+                        io7_state[tag] = io[6]
+            except Exception:
+                pass
             loop.call_soon_threadsafe(new_data_event.set)
 
 async def ws_handler(websocket):
@@ -105,7 +118,11 @@ async def ws_handler(websocket):
                     send_key_to_tracker(data.get('key'))
                 io7_cmd = data.get("io7", "")
                 if io7_cmd in ("A1", "A0", "B1", "B0"):
-                    send_key_to_tracker(io7_cmd[0].lower())
+                    tag = io7_cmd[0]      # "A" or "B"
+                    desired = io7_cmd[1]  # "1" or "0"
+                    current = io7_state.get(tag, "0")
+                    if current != desired:
+                        send_key_to_tracker(tag.lower())
             except:
                 pass
     except:

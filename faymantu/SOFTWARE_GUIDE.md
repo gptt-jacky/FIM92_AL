@@ -321,7 +321,7 @@ Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO7 輸出
 {"io7": "<Tag><State>"}
 ```
 
-| 指令 | 說明 |
+| 指令 | 語義 |
 |------|------|
 | `{"io7":"A1"}` | Tag A（刺針）IO7 → ON |
 | `{"io7":"A0"}` | Tag A（刺針）IO7 → OFF |
@@ -330,9 +330,9 @@ Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO7 輸出
 
 ### 注意事項
 
-- IO7 在硬體端為 **toggle** 機制：每次指令會切換一次狀態
-- **建議**：發送指令後，讀取回傳 JSON 的 `io[6]` 確認實際狀態
 - 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
+- 若 IO7 已是目標狀態，指令不會重複翻轉（Server 內部比對 `io[6]` 後決定是否動作）
+- 建議發送後仍讀取回傳 JSON 的 `io[6]` 確認實際狀態
 
 > 完整控制指令規格請見 [COMM_SPEC.md §8](COMM_SPEC.md#8-控制指令client--server)。
 
