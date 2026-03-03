@@ -27,6 +27,9 @@ new_data_event = None  # asyncio.Event, set from stdin_reader thread
 # IO7 state tracking: {"A": "0", "B": "1", ...}
 io7_state = {}
 
+# IO8 state tracking (Tag B only): {"B": "0"}
+io8_state = {}
+
 # Load scenes.json for environmentData injection
 scenes_env = {}
 try:
@@ -99,6 +102,8 @@ def stdin_reader(loop):
                     io = t.get("io", "")
                     if len(io) > 6 and tag in ("A", "B", "C", "D"):
                         io7_state[tag] = io[6]
+                    if len(io) > 7 and tag in ("A", "B", "C", "D"):
+                        io8_state[tag] = io[7]
             except Exception:
                 pass
             loop.call_soon_threadsafe(new_data_event.set)
@@ -123,6 +128,12 @@ async def ws_handler(websocket):
                     current = io7_state.get(tag, "0")
                     if current != desired:
                         send_key_to_tracker(tag.lower())
+                io8_cmd = data.get("io8", "")
+                if io8_cmd in ("B1", "B0"):
+                    desired = io8_cmd[1]  # "1" or "0"
+                    current = io8_state.get("B", "0")
+                    if current != desired:
+                        send_key_to_tracker("c")
             except:
                 pass
     except:

@@ -132,9 +132,48 @@ C++ JSON 輸出同時保留：
 - 建議 client 端搭配回傳 `io` 欄位確認實際狀態
 - 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
 
+### 10. IO-only 架構 + IO8 Output (Tag B 大震動)
+
+**需求：** Tag B（頭盔）需要兩個 Output pin — IO7（小震動）和 IO8（大震動），可同時啟動達成大震動效果。
+
+**硬體衝突發現：**
+
+在同一裝置上同時跑 Alt Tracker cotask + HW Extension cotask（含 2 個 `createOutputPin`），Alt Tracker 完全無法啟動。經過 4 輪測試：
+
+| 嘗試 | 結果 |
+|------|------|
+| 8 pin (7in + IO7 out + IO8 out) + Alt Tracker | ❌ |
+| IO8 output 加 try-catch + Alt Tracker | ❌（無 exception 但 Alt 不動） |
+| 改用 IO6 + IO7 output + Alt Tracker | ❌ |
+| 7 pin (5in + IO7 + IO8 out) + Alt Tracker | ❌ |
+
+**結論：** Antilatency 裝置在 Alt Tracker cotask 運行時，HW Extension 只能有 **1 個 Output pin**。2 個 Output pin 的資源需求會與 Alt Tracker 衝突。官方 Demo 展示的 PWM + Output 組合也是在**不跑 Alt Tracker** 的情境下。
+
+**解法：** Tag B（頭盔）和 Tag D（對講機）不需要 6DOF 定位，只需 IO。改為 **IO-only** 架構 — 不啟動 Alt Tracker cotask：
+
+```cpp
+if (nodeType == "B" || nodeType == "D") continue;  // 跳過 Alt Tracker
+```
+
+這樣 Tag B 就能安全使用 2 個 Output pin（IO7 + IO8），與 Alt Tracker 零衝突。
+
+**WebSocket 新增指令：** `{"io8":"B1"}` / `{"io8":"B0"}`，Python server 與 C++ 均已支援。
+
+**IO-only JSON 格式：** B/D 裝置在 trackers 陣列中，位置為 0 (`px=0, py=0, pz=0, rw=1`)，IO 正常輸出。
+
+### 11. IO-only 裝置的 JSON 格式調整
+
+由於 Tag B/D 不跑 Alt Tracker，JSON 輸出已簡化：
+
+- 移除全域 `"io":{...}` 欄位（原本用於向下相容 viewer）
+- 移除 `id`、`type`、`number`、`stability` 欄位
+- WebSocket 格式統一為：`{"trackers":[{"tag":"A","px":...,"rw":...,"io":"..."}]}`
+- IO-only 裝置範例：`{"tag":"B","px":0,"py":0,"pz":0,"rx":0,"ry":0,"rz":0,"rw":1,"io":"00000000"}`
+
 ## 日期
 
 - 初始討論：2026-02-25
 - 實作完成：2026-02-25
 - 效能優化：2026-02-25
 - IO7 per-device 控制：2026-02-26
+- IO-only 架構 + IO8 output：2026-03-03

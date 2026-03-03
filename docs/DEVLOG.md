@@ -1382,6 +1382,130 @@ WebSocket 連線驗證工具新增鍵盤互動功能：
 
 ---
 
+## Phase 12：IO-only 架構 + Tag B IO8 輸出 (2026-03-03)
+
+**目標**：為 Tag B（頭盔）新增 IO8 輸出控制（大震動），並確立 Tag B/D 為 IO-only 裝置（不需要 Alt Tracker 定位）。
+
+### 12.1 各 Tag IO 定義
+
+| Tag | 裝置 | 用途概述 |
+|-----|------|----------|
+| A（刺針） | IO1=IFF開關, IO2=鎖定鍵, IOA3=BCU, IOA4=保險, IO5=瞄準模組, IO6=板機, **IO7=後座力(輸出)**, IO8=後座力準備 |
+| B（頭盔） | **IO7=小震動(輸出)**, **IO8=大震動(輸出)** |
+| C（望遠鏡） | IO1=縮小鍵, IO2=放大鍵 |
+| D（對講機） | IO1=通話鍵 |
+
+### 12.2 IO-only 架構（重要硬體發現）
+
+**問題**：Tag B 需要 IO7（小震動）+ IO8（大震動）兩個 Output pin。最初嘗試在 Tag B 裝置上同時執行 Alt Tracker cotask + HW Extension cotask（含 2 個 `createOutputPin`），結果 **Alt Tracker 完全無法啟動**（LED 不亮綠燈、收不到追蹤資料）。
+
+**測試過程**：
+
+| 嘗試 | 配置 | 結果 |
+|------|------|------|
+| 1 | 7 input + IO7 output + IO8 output + Alt Tracker | ❌ Alt 不啟動 |
+| 2 | IO7 + IO8 output 加 try-catch fallback + Alt Tracker | ❌ 無 exception 但 Alt 仍不啟動 |
+| 3 | 改用 IO6 + IO7 兩個 output + Alt Tracker | ❌ 同樣失敗 |
+| 4 | 減少總 pin 數到 7 個（5 input + 2 output）+ Alt Tracker | ❌ 仍然失敗 |
+
+**根因分析**：
+
+在同一個實體 USB 裝置上，**Alt Tracker cotask** 會佔用大量硬體資源（IMU、LED 通訊等）。當 HW Extension cotask 同時呼叫 **2 次 `createOutputPin`**，總資源需求超過裝置可同時分配的上限，導致 Alt Tracker 無法啟動。
+
+- 1 output + Alt Tracker → ✅ 正常
+- 2 output + Alt Tracker → ❌ 衝突
+- 2 output + 無 Alt Tracker → ✅ 正常
+
+> 官方 Antilatency Demo 示範了 PWM + Output（2 個輸出型 pin），但該 Demo **沒有同時執行 Alt Tracker cotask**。
+> 硬體本身支援 8 個 pin 全部設為 Output，但 **Alt Tracker 和 HW Extension 共用裝置時，只能有 1 個 Output pin**。
+
+**解決方案**：
+
+Tag B（頭盔）和 Tag D（對講機）實際上不需要 6DOF 定位，只需要 IO 控制。因此將這兩個裝置設為 **IO-only**，不啟動 Alt Tracker cotask：
+
+```cpp
+// 跳過 Type B 和 D 的 Alt Tracker 啟動
+std::string nodeType = getNodeType(network, node);
+if (nodeType == "B" || nodeType == "D") continue;
+```
+
+| Tag | Alt Tracker | HW Extension | Pin 配置 |
+|-----|:-----------:|:------------:|----------|
+| A（刺針） | ✅ | ✅ | 7 input + IO7 output |
+| B（頭盔） | ❌ IO-only | ✅ | 6 input + IO7 output + IO8 output |
+| C（望遠鏡） | ✅ | ✅ | 7 input + IO7 output |
+| D（對講機） | ❌ IO-only | ✅ | 7 input + IO7 output |
+
+### 12.3 C++ 端修改
+
+**HWExtInstance 結構體新增 IO8 欄位：**
+
+```cpp
+struct HWExtInstance {
+    // ... 原有欄位 ...
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO8;  // Tag B only
+    bool io8State = false;
+    bool hasIO8Output = false;  // true only for Tag B
+};
+```
+
+**Tag B Pin 配置（IO-only，無 Alt Tracker 衝突）：**
+
+```cpp
+if (hw.type == "B") {
+    for (int i = 0; i < 6; i++) {  // IO1~IO6: 6 input
+        hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
+    }
+    hw.outputPinIO7 = cotask.createOutputPin(Pins::IO7, PinState::Low);  // 小震動
+    hw.outputPinIO8 = cotask.createOutputPin(Pins::IO8, PinState::Low);  // 大震動
+    hw.hasIO8Output = true;
+}
+```
+
+**鍵盤操作更新：**
+
+| 按鍵 | 功能 |
+|------|------|
+| `A` | 切換 Tag A（刺針）IO7 Output（後座力） |
+| `B` | 切換 Tag B（頭盔）IO7 Output（小震動） |
+| `C` | 切換 Tag B（頭盔）IO8 Output（大震動） |
+| `O` | 切換所有 IO7 Output |
+
+**JSON 輸出**：IO-only 裝置（B/D）加入 trackers 陣列，位置為 0，IO 正常輸出。
+
+### 12.4 WebSocket IO8 控制協議
+
+新增 `{"io8":"B1"}` / `{"io8":"B0"}` 指令：
+
+| 指令 | 目標 | 說明 |
+|------|------|------|
+| `{"io8":"B1"}` | Tag B IO8 | 大震動 ON（需 IO7 同時 ON） |
+| `{"io8":"B0"}` | Tag B IO8 | 大震動 OFF |
+
+**震動邏輯**：
+- IO7=ON, IO8=OFF → 小震動
+- IO7=ON, IO8=ON → 大震動（兩者必須同時 ON）
+- IO7=OFF, IO8=ON → 無效果
+
+**Python Server**：data_server.py、pipe_server.py 均新增 io8 指令處理。
+
+### 12.5 修改的檔案
+
+| 檔案 | 動作 | 說明 |
+|------|------|------|
+| `src/TrackingMinimalDemoCpp.cpp` | 修改 | IO-only 架構、IO8 output、C 鍵、JSON 輸出 |
+| `web/data_server.py` | 修改 | io8 控制指令處理 |
+| `web/pipe_server.py` | 修改 | io8 控制指令處理 |
+| `web/ws_client.py` | 修改 | C 鍵 toggle IO8、狀態顯示 |
+| `faymantu/data_server.py` | 修改 | io8 控制指令處理 |
+| `faymantu/ws_client.py` | 修改 | C 鍵 toggle IO8、狀態顯示 |
+| `faymantu/COMM_SPEC.md` | 修改 | IO8 指令、IO 定義、IO-only 裝置說明 |
+| `faymantu/SOFTWARE_GUIDE.md` | 修改 | IO8 控制、Tag B/C/D IO 定義 |
+| `docs/DEVLOG.md` | 修改 | Phase 12 記錄 |
+| `docs/DEV_DISCUSSION.md` | 修改 | 硬體發現紀錄 |
+
+---
+
 ## 為什麼使用本地有線連接？
 
 - **延遲最低**：USB 直連，可達 Antilatency 標榜的 **2ms 低延遲**

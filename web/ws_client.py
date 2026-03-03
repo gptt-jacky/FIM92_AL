@@ -20,12 +20,13 @@ HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
 
 io7_state = {"A": False, "B": False}
+io8_state = {"B": False}
 ws_ref = None
 loop_ref = None
 
 
 def keyboard_reader():
-    """Read keyboard input: A/B toggle IO7."""
+    """Read keyboard input: A/B toggle IO7, C toggle IO8-B."""
     while True:
         if msvcrt.kbhit():
             ch = msvcrt.getch()
@@ -37,6 +38,11 @@ def keyboard_reader():
                 io7_state[key] = not io7_state[key]
                 val = "1" if io7_state[key] else "0"
                 cmd = json.dumps({"io7": f"{key}{val}"})
+                asyncio.run_coroutine_threadsafe(ws_ref.send(cmd), loop_ref)
+            elif key == "C" and ws_ref and loop_ref:
+                io8_state["B"] = not io8_state["B"]
+                val = "1" if io8_state["B"] else "0"
+                cmd = json.dumps({"io8": f"B{val}"})
                 asyncio.run_coroutine_threadsafe(ws_ref.send(cmd), loop_ref)
         time.sleep(0.05)
 
@@ -77,6 +83,7 @@ async def main(url):
 
             io7a = "ON" if io7_state["A"] else "OFF"
             io7b = "ON" if io7_state["B"] else "OFF"
+            io8b = "ON" if io8_state["B"] else "OFF"
             header = f"  RX: {fps} msg/sec  |  Frame: #{frame_count}  |  Size: {len(message)} bytes"
             output = (
                 CLEAR_SCREEN
@@ -87,7 +94,7 @@ async def main(url):
                 + "-" * 70 + "\n\n"
                 + message + "\n\n"
                 + "-" * 70 + "\n"
-                + f"  [A] IO7-A: {io7a}  [B] IO7-B: {io7b}  |  Ctrl+C to quit\n"
+                + f"  [A] IO7-A: {io7a}  [B] IO7-B: {io7b}  [C] IO8-B: {io8b}  |  Ctrl+C to quit\n"
             )
             sys.stdout.write(output)
             sys.stdout.flush()

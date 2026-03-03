@@ -177,15 +177,16 @@ Server Port [8765]: 8765
 {"trackers":[{"tag":"A","px":1.256012,"py":1.680032,"pz":0.000145,"rx":-0.710743,"ry":0.008621,"rz":-0.014023,"rw":0.703312,"io":"00000000"}]}
 
 ----------------------------------------------------------------------
-  [A] IO7-A: OFF  [B] IO7-B: OFF  |  Ctrl+C to quit
+  [A] IO7-A: OFF  [B] IO7-B: OFF  [C] IO8-B: OFF  |  Ctrl+C to quit
 ```
 
 **測試工具快捷鍵：**
 
 | 按鍵 | 功能 |
 |------|------|
-| `A` | 切換 Tag A（刺針）的 IO7 輸出 |
-| `B` | 切換 Tag B（頭盔）的 IO7 輸出 |
+| `A` | 切換 Tag A（刺針）的 IO7 輸出（後座力） |
+| `B` | 切換 Tag B（頭盔）的 IO7 輸出（小震動） |
+| `C` | 切換 Tag B（頭盔）的 IO8 輸出（大震動） |
 | `Ctrl+C` | 結束程式 |
 
 > 確認 RX 速率約為 128 msg/sec 且能看到 JSON 資料，表示連線正常。
@@ -228,6 +229,8 @@ Server Port [8765]: 8765
 | `px`, `py`, `pz` | float | 位置（公尺），右手座標系，**Y 軸朝上** |
 | `rx`, `ry`, `rz`, `rw` | float | 旋轉四元數 (x, y, z, w) |
 | `io` | string | 8 字元 IO 狀態字串（每字元 `"0"` 或 `"1"`） |
+
+> **注意**：Tag B（頭盔）和 Tag D（對講機）為 **IO-only 裝置**，不提供位置追蹤。其 `px/py/pz` 固定為 0，`rw` 固定為 1，僅 `io` 欄位有效。
 
 > 完整欄位定義（型別、範圍、精度）請見 [COMM_SPEC.md §5](COMM_SPEC.md#5-欄位定義)。
 
@@ -274,9 +277,29 @@ stinger = data["trackers"][0]  # 不保證是 Tag A
 | `[4]` IO5 | 瞄準模組 |
 | `[5]` IO6 | 板機 |
 | `[6]` IO7 | 後座力（輸出，由 Server 控制） |
-| `[7]` IO8 | （未定義） |
+| `[7]` IO8 | 後座力準備 |
 
-> 完整 IO 定義（含 Tag B/C/D、Active Low 說明、解讀範例）請見 [COMM_SPEC.md §6](COMM_SPEC.md#6-io-定義)。
+**Tag B（頭盔）IO 訊號定義：**
+
+| 位置 | 訊號名稱 |
+|------|----------|
+| `[6]` IO7 | 小震動（輸出，由 Server 控制） |
+| `[7]` IO8 | 大震動（輸出，由 Server 控制，需 IO7 同時 ON） |
+
+**Tag C（望遠鏡）IO 訊號定義：**
+
+| 位置 | 訊號名稱 |
+|------|----------|
+| `[0]` IO1 | 縮小鍵 |
+| `[1]` IO2 | 放大鍵 |
+
+**Tag D（對講機）IO 訊號定義：**
+
+| 位置 | 訊號名稱 |
+|------|----------|
+| `[0]` IO1 | 通話鍵 |
+
+> 完整 IO 定義（含所有 Tag、Active Low 說明、解讀範例）請見 [COMM_SPEC.md §6](COMM_SPEC.md#6-io-定義)。
 
 ### 讀取範例
 
@@ -290,7 +313,7 @@ safety  = io[3]  # IOA4 - 保險
 aim     = io[4]  # IO5  - 瞄準模組
 trigger = io[5]  # IO6  - 板機
 io7_out = io[6]  # IO7  - 後座力（輸出）
-io8     = io[7]  # IO8  - 未定義
+io8     = io[7]  # IO8  - 後座力準備
 
 if trigger == "1":
     print("板機已按下！")
@@ -306,16 +329,16 @@ bool safety  = io[3] == '1';  // IOA4 - 保險
 bool aim     = io[4] == '1';  // IO5  - 瞄準模組
 bool trigger = io[5] == '1';  // IO6  - 板機
 bool io7Out  = io[6] == '1';  // IO7  - 後座力（輸出）
-bool io8     = io[7] == '1';  // IO8  - 未定義
+bool io8     = io[7] == '1';  // IO8  - 後座力準備
 ```
 
 ---
 
-## IO7 控制指令（Client → Server）
+## IO 控制指令（Client → Server）
 
-Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO7 輸出腳位（例如觸發後座力模擬）。
+Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO 輸出腳位。
 
-### 指令格式
+### IO7 控制
 
 ```json
 {"io7": "<Tag><State>"}
@@ -323,16 +346,30 @@ Client 可透過 WebSocket 發送 JSON 指令，控制特定裝置的 IO7 輸出
 
 | 指令 | 語義 |
 |------|------|
-| `{"io7":"A1"}` | Tag A（刺針）IO7 → ON |
+| `{"io7":"A1"}` | Tag A（刺針）IO7 → ON（後座力） |
 | `{"io7":"A0"}` | Tag A（刺針）IO7 → OFF |
-| `{"io7":"B1"}` | Tag B（頭盔）IO7 → ON |
+| `{"io7":"B1"}` | Tag B（頭盔）IO7 → ON（小震動） |
 | `{"io7":"B0"}` | Tag B（頭盔）IO7 → OFF |
+
+### IO8 控制（僅 Tag B）
+
+```json
+{"io8": "<Tag><State>"}
+```
+
+| 指令 | 語義 |
+|------|------|
+| `{"io8":"B1"}` | Tag B（頭盔）IO8 → ON（大震動） |
+| `{"io8":"B0"}` | Tag B（頭盔）IO8 → OFF |
+
+> **大震動**需要 IO7 和 IO8 **同時為 ON**。直接同時發送 `{"io7":"B1"}` + `{"io8":"B1"}` 即可，即使 IO7 已經 ON 也不影響（set-to-state 語義）。
 
 ### 注意事項
 
-- 僅 Tag A（刺針）和 Tag B（頭盔）支援 IO7 控制
-- 若 IO7 已是目標狀態，指令不會重複翻轉（Server 內部比對 `io[6]` 後決定是否動作）
-- 建議發送後仍讀取回傳 JSON 的 `io[6]` 確認實際狀態
+- IO7 控制：僅 Tag A（刺針）和 Tag B（頭盔）支援
+- IO8 控制：僅 Tag B（頭盔）支援
+- 若已是目標狀態，指令不會重複翻轉（set-to-state 語義）
+- 建議發送後仍讀取回傳 JSON 的 `io[6]`（IO7）、`io[7]`（IO8）確認實際狀態
 
 > 完整控制指令規格請見 [COMM_SPEC.md §8](COMM_SPEC.md#8-控制指令client--server)。
 
@@ -435,6 +472,11 @@ ws.onmessage = (event) => {
 // 發送 IO7 控制指令
 function setIO7(tag, state) {
     ws.send(JSON.stringify({ io7: tag + state }));  // 例如 "A1"
+}
+
+// 發送 IO8 控制指令（僅 Tag B）
+function setIO8(tag, state) {
+    ws.send(JSON.stringify({ io8: tag + state }));  // 例如 "B1"
 }
 ```
 

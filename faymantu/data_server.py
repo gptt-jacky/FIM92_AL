@@ -40,6 +40,9 @@ VALID_TAGS = {"A", "B", "C", "D"}
 # IO7 state tracking: {"A": "0", "B": "1", ...}
 io7_state = {}
 
+# IO8 state tracking (Tag B only): {"B": "0"}
+io8_state = {}
+
 # Pre-compile regex for fast extraction from C++ JSON
 _tracker_re = re.compile(
     r'\{"id":(\d+),'
@@ -91,9 +94,11 @@ def transform_fast(line):
         tid, tag, ttype, px, py, pz, rx, ry, rz, rw, io = m
         if not tag:
             tag = ttype if ttype in VALID_TAGS else "?" + tid
-        # Track IO7 state (io[6]) per tag
+        # Track IO7 state (io[6]) and IO8 state (io[7]) per tag
         if len(io) > 6 and tag in VALID_TAGS:
             io7_state[tag] = io[6]
+        if len(io) > 7 and tag in VALID_TAGS:
+            io8_state[tag] = io[7]
         parts.append(
             f'{{"tag":"{tag}","px":{px},"py":{py},"pz":{pz},'
             f'"rx":{rx},"ry":{ry},"rz":{rz},"rw":{rw},"io":"{io}"}}'
@@ -164,6 +169,12 @@ async def ws_handler(websocket):
                     current = io7_state.get(tag, "0")
                     if current != desired:
                         send_key_to_tracker(tag.lower())
+                io8_cmd = data.get("io8", "")
+                if io8_cmd in ("B1", "B0"):
+                    desired = io8_cmd[1]  # "1" or "0"
+                    current = io8_state.get("B", "0")
+                    if current != desired:
+                        send_key_to_tracker("c")
             except Exception:
                 pass
     except Exception:
