@@ -1,0 +1,28 @@
+graph TD
+    subgraph 場地["訓練場地"]
+        ENV["AL 定位系統<br/>（地墊 / HorizontalGrid）"]
+    end
+
+    subgraph 裝置["訓練設備（×4 組）"]
+        A["Tag A 刺針<br/>Alt Tracker + IO 模組"]
+        B["Tag B 頭盔<br/>IO 模組（IO-only）"]
+        C["Tag C 望遠鏡<br/>Alt Tracker + IO 模組"]
+        D["Tag D 對講機<br/>IO 模組（IO-only）"]
+    end
+
+    subgraph 主機["追蹤主機（Windows）"]
+        CPP["C++ 追蹤程式<br/>6DOF 定位計算 + IO 讀取<br/>（500Hz）"]
+        PY["Python Data Server<br/>JSON 格式轉換 + WebSocket 推送<br/>（~128 msg/sec）"]
+    end
+
+    CLIENT["軟體組應用程式<br/>（WebSocket Client）"]
+
+    ENV -. "紅外線定位" .-> A
+    ENV -. "紅外線定位" .-> C
+    A -- "USB" --> CPP
+    B -- "USB" --> CPP
+    C -- "USB" --> CPP
+    D -- "USB" --> CPP
+    CPP --> PY
+    PY -- "WebSocket<br/>ws://host:8765" --> CLIENT
+    CLIENT -. "IO 控制指令<br/>{io7:A1} {io8:B1}" .-> PY
