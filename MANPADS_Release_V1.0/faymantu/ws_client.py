@@ -26,7 +26,7 @@ loop_ref = None
 
 
 def keyboard_reader():
-    """Read keyboard input: A/B toggle IO7, C toggle IO8-B."""
+    """Read keyboard input: A/B toggle IO7, C toggle IO8 (Tag B)."""
     while True:
         if msvcrt.kbhit():
             ch = msvcrt.getch()

@@ -213,7 +213,7 @@ std::string getParentPath(const char *inp){
 // Tag = Type property directly (A/B/C/D set in AntilatencyService)
 // ============================================================
 static std::string typeToTag(const std::string& type) {
-    if (type == "A" || type == "B" || type == "C" || type == "D") return type;
+    if (type == "A" || type == "B" || type == "C" || type == "D" || type == "E" || type == "F") return type;
     return "";  // Unknown type, no tag
 }
 
@@ -484,7 +484,7 @@ int main(int argc, char* argv[]) {
                         hw.outputPinIO8.setState(hw.io8State
                             ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
                             : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        std::cout << "\n>> IO8[B]: " << (hw.io8State ? "ON" : "OFF") << std::endl;
+                        std::cout << "\n>> IO8[B] (大震動): " << (hw.io8State ? "ON" : "OFF") << std::endl;
                         break;
                     }
                 }
@@ -536,7 +536,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Find and start ALL idle tracking nodes
-            // Tag B (頭盔) and D (對講機) are IO-only — skip Alt Tracker for them
+            // Tag B (主射手頭盔震動器) and D (對講機) are IO-only — skip Alt Tracker for them
             auto idleNodes = getAllIdleTrackingNodes(network, altTrackingCotaskConstructor);
             for (auto node : idleNodes) {
                 // Skip if already tracked
@@ -595,12 +595,16 @@ int main(int argc, char* argv[]) {
                 }
                 if (alreadyUsed) continue;
 
+                // Tag E (副射手頭盔) and F (主射手頭盔定位) are Alt-only — no HW Extension needed
+                std::string hwNodeType = getNodeType(network, hwNode);
+                if (hwNodeType == "E" || hwNodeType == "F") continue;
+
                 auto cotask = hwCotaskConstructor.startTask(network, hwNode);
                 if (cotask != nullptr) {
                     HWExtInstance hw;
                     hw.node = hwNode;
                     hw.cotask = cotask;
-                    hw.type = getNodeType(network, hwNode);
+                    hw.type = hwNodeType;
 
                     // Per-type pin configuration:
                     // Tag B (IO-only): 6 input (IO1-IO6) + 2 output (IO7 小震動, IO8 大震動) = 8 pins
@@ -739,9 +743,6 @@ int main(int argc, char* argv[]) {
                 oss << (hw.io7State ? "1" : "0");
                 if (hw.hasIO8Output) {
                     oss << (hw.io8State ? "1" : "0");
-                } else {
-                    auto pin8State = hw.inputPins[hw.inputPins.size() - 1].getState();
-                    oss << ((pin8State == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
                 }
                 oss << "  ";
             }

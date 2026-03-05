@@ -21,12 +21,14 @@ CYAN = "\033[36m"
 RED = "\033[31m"
 DIM = "\033[2m"
 
-# Tag = Type directly (A/B/C/D)
+# Tag = Type directly (A/B/C/D/E/F)
 TAG_INFO = {
     "A": ("A", "刺針"),
-    "B": ("B", "頭盔"),
+    "B": ("B", "主射手頭盔震動器"),
     "C": ("C", "望遠鏡"),
     "D": ("D", "對講機"),
+    "E": ("E", "副射手頭盔"),
+    "F": ("F", "主射手頭盔定位"),
 }
 
 IO_LABELS = ["IO1", "IO2", "IOA3", "IOA4", "IO5", "IO6", "IO7*", "IO8"]

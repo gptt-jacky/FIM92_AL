@@ -100,9 +100,9 @@ def stdin_reader(loop):
                 for t in parsed.get("trackers", []):
                     tag = t.get("tag", "") or t.get("type", "")
                     io = t.get("io", "")
-                    if len(io) > 6 and tag in ("A", "B", "C", "D"):
+                    if len(io) > 6 and tag in ("A", "B", "C", "D", "E", "F"):
                         io7_state[tag] = io[6]
-                    if len(io) > 7 and tag in ("A", "B", "C", "D"):
+                    if len(io) > 7 and tag == "B":
                         io8_state[tag] = io[7]
             except Exception:
                 pass
@@ -133,7 +133,7 @@ async def ws_handler(websocket):
                     desired = io8_cmd[1]  # "1" or "0"
                     current = io8_state.get("B", "0")
                     if current != desired:
-                        send_key_to_tracker("c")
+                        send_key_to_tracker("c")  # C key = Tag B IO8
             except:
                 pass
     except:

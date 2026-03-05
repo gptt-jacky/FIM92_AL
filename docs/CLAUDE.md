@@ -96,20 +96,23 @@ scripts/RunTracking.bat
 
 ## 硬體架構（重要限制）
 
-### 四組裝置
+### 六組裝置
 
 | Tag | 裝置 | 模式 | 說明 |
 |-----|------|------|------|
 | A | 刺針 | Alt Tracker + IO | 7 input + IO7 output |
-| B | 頭盔 | **IO-only** | 6 input + IO7 output + IO8 output |
+| B | 主射手頭盔震動器 | **IO-only** | 6 input + IO7 output + IO8 output |
 | C | 望遠鏡 | Alt Tracker + IO | 7 input + IO7 output |
 | D | 對講機 | **IO-only** | 7 input + IO7 output |
+| E | 副射手頭盔 | **Alt-only** | 僅位置追蹤，無 IO |
+| F | 主射手頭盔定位 | **Alt-only** | 僅位置追蹤，無 IO |
 
 ### 已知硬體限制
 
 - **Alt Tracker + HW Extension 共用裝置時，最多只能有 1 個 Output pin**
 - 2 個 `createOutputPin` + Alt Tracker cotask = 衝突（Alt 不啟動）
-- Tag B/D 為 IO-only（不跑 Alt Tracker），所以可以安全使用多個 Output pin
+- Tag B/D 為 IO-only（不跑 Alt Tracker）→ Tag B 可安全使用 IO7+IO8 雙 Output
+- Tag E/F 為 Alt-only（不跑 HW Extension）
 
 ---
 
@@ -129,8 +132,9 @@ C++ 主程式 (500Hz) ──stdout──→ pipe ──→ Python Server ──W
 
 ### IO 控制
 
-- C++ 鍵盤：`A`=Tag A IO7, `B`=Tag B IO7, `C`=Tag B IO8, `O`=全部 IO7
-- WebSocket：`{"io7":"A1"}` / `{"io8":"B1"}` — set-to-state 語義
+- C++ 鍵盤：`A`=Tag A IO7, `B`=Tag B IO7(小震動), `C`=Tag B IO8(大震動), `O`=全部 IO7
+- WebSocket IO7：`{"io7":"A1"}` / `{"io7":"B1"}` — set-to-state 語義
+- WebSocket IO8：`{"io8":"B1"}` / `{"io8":"B0"}` — 僅 Tag B（大震動）
 - Python → C++ 透過 PowerShell SendKeys 轉發
 
 ---

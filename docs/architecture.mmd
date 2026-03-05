@@ -3,11 +3,13 @@ graph TD
         ENV["AL 定位系統<br/>（地墊 / HorizontalGrid）"]
     end
 
-    subgraph 裝置["訓練設備（×4 組）"]
+    subgraph 裝置["訓練設備（×6 組）"]
         A["Tag A 刺針<br/>Alt Tracker + IO 模組"]
-        B["Tag B 頭盔<br/>IO 模組（IO-only）"]
+        B["Tag B 主射手頭盔震動器<br/>IO 模組（IO-only）"]
         C["Tag C 望遠鏡<br/>Alt Tracker + IO 模組"]
         D["Tag D 對講機<br/>IO 模組（IO-only）"]
+        E["Tag E 副射手頭盔<br/>Alt Tracker（Alt-only）"]
+        F["Tag F 主射手頭盔定位<br/>Alt Tracker（Alt-only）"]
     end
 
     subgraph 主機["追蹤主機（Windows）"]
@@ -15,14 +17,18 @@ graph TD
         PY["Python Data Server<br/>JSON 格式轉換 + WebSocket 推送<br/>（~128 msg/sec）"]
     end
 
-    CLIENT["軟體組應用程式<br/>（WebSocket Client）"]
+    CLIENT["費曼圖WebXR應用程式<br/>（WebSocket Client）"]
 
     ENV -. "紅外線定位" .-> A
     ENV -. "紅外線定位" .-> C
+    ENV -. "紅外線定位" .-> E
+    ENV -. "紅外線定位" .-> F
     A -- "USB" --> CPP
     B -- "USB" --> CPP
     C -- "USB" --> CPP
     D -- "USB" --> CPP
+    E -- "USB" --> CPP
+    F -- "USB" --> CPP
     CPP --> PY
     PY -- "WebSocket<br/>ws://host:8765" --> CLIENT
-    CLIENT -. "IO 控制指令<br/>{io7:A1} {io8:B1}" .-> PY
+    CLIENT -. "IO 控制指令<br/>{io7:A1} {io7:B1} {io8:B1}" .-> PY

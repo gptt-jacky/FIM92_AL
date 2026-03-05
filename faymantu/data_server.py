@@ -34,8 +34,8 @@ rx_count = 0
 tx_fps = 0
 rx_fps = 0
 
-# Tag = Type directly (A/B/C/D set in AntilatencyService)
-VALID_TAGS = {"A", "B", "C", "D"}
+# Tag = Type directly (A/B/C/D/E/F set in AntilatencyService)
+VALID_TAGS = {"A", "B", "C", "D", "E", "F"}
 
 # IO7 state tracking: {"A": "0", "B": "1", ...}
 io7_state = {}
@@ -84,7 +84,7 @@ def send_key_to_tracker(key):
 
 def transform_fast(line):
     """Fast string-level transform via regex, no json.loads/json.dumps."""
-    global io7_state
+    global io7_state, io8_state
     matches = _tracker_re.findall(line)
     if not matches and '"trackers":[]' not in line:
         return None
@@ -94,10 +94,11 @@ def transform_fast(line):
         tid, tag, ttype, px, py, pz, rx, ry, rz, rw, io = m
         if not tag:
             tag = ttype if ttype in VALID_TAGS else "?" + tid
-        # Track IO7 state (io[6]) and IO8 state (io[7]) per tag
+        # Track IO7 state (io[6]) per tag
         if len(io) > 6 and tag in VALID_TAGS:
             io7_state[tag] = io[6]
-        if len(io) > 7 and tag in VALID_TAGS:
+        # Track IO8 state (io[7]) for Tag B
+        if len(io) > 7 and tag == "B":
             io8_state[tag] = io[7]
         parts.append(
             f'{{"tag":"{tag}","px":{px},"py":{py},"pz":{pz},'
@@ -174,7 +175,7 @@ async def ws_handler(websocket):
                     desired = io8_cmd[1]  # "1" or "0"
                     current = io8_state.get("B", "0")
                     if current != desired:
-                        send_key_to_tracker("c")
+                        send_key_to_tracker("c")  # C key = Tag B IO8
             except Exception:
                 pass
     except Exception:
