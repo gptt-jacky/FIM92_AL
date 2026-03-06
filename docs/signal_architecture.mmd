@@ -1,0 +1,25 @@
+---
+config:
+  theme: redux
+  themeVariables:
+    fontSize: 16px
+title: 硬體／軟體訊號切分架構
+---
+flowchart TD
+    subgraph SW["軟體端（費曼圖）"]
+        Judge{"場景狀態判定<br/>飛彈狀態 / 故障模擬 / 
+        是否正確操作按鍵"}
+        Judge --> Allow["允許射擊"]
+        Judge --> Deny["不允許射擊"]
+    end
+
+    subgraph HW["硬體端（全球動力科技）"]
+        INPUTS["刺針按鍵訊號<br/>IFF / 鎖定 / BCU / 保險<br/>瞄準 / 板機 / 後座力準備"]
+        TRIGGER{"觸發判定<br/>1. 軟體已允許<br/>2. 後座力準備就緒<br/>3. 板機+鎖定 1秒"}
+        FIRE["觸發後座力"]
+        TRIGGER -->|三者同時成立| FIRE
+    end
+
+    Allow -->|允許| TRIGGER
+    Deny -->|禁止| TRIGGER
+    INPUTS -->|即時回報| Judge
