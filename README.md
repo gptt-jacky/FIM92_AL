@@ -234,8 +234,8 @@ Web 端（或任何 WebSocket client）可以發送 JSON 訊息控制 C++ 程式
 
 | 指令 | 說明 |
 |------|------|
-| `{"io7":"A1"}` | Tag A IO7 → High |
-| `{"io7":"A0"}` | Tag A IO7 → Low |
+| `{"io7":"A1"}` | Tag A IO7 → High（開保險 — 允許觸發後座力） |
+| `{"io7":"A0"}` | Tag A IO7 → Low（關保險 — 禁止觸發後座力） |
 | `{"io7":"B1"}` | Tag B IO7 → High（小震動） |
 | `{"io7":"B0"}` | Tag B IO7 → Low |
 
@@ -602,7 +602,7 @@ cmake -B build && cmake --build build
 |------|------|
 | `1`-`9` | 切換場景 |
 | `L` | 列出場景 |
-| `A` | Tag A IO7 Output (後座力) |
+| `A` | Tag A IO7 Output (保險開關) |
 | `B` | Tag B IO7 Output (小震動) |
 | `C` | Tag B IO8 Output (大震動) |
 | `O` | 所有 IO7 Output |
