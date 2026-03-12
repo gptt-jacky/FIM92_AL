@@ -2,7 +2,7 @@
 # 最後更新: 2026/03/12
 """
 For software team integration. No HTTP server, no web viewer.
-IO control via Named Pipe (\\.\pipe\MANPADS_IO).
+IO control via Named Pipe (MANPADS_IO).
 
 Usage:
   TrackingMinimalDemo.exe --json scenes.json | python data_server.py
@@ -67,33 +67,39 @@ PIPE_NAME = r'\\.\pipe\MANPADS_IO'
 _pipe_handle = None
 _pipe_lock = threading.Lock()
 
+# Windows API via ctypes for Named Pipe access
+import ctypes
+from ctypes import wintypes
+_kernel32 = ctypes.windll.kernel32
+_kernel32.CreateFileW.restype = wintypes.HANDLE
+_kernel32.WriteFile.argtypes = [
+    wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
+    ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p
+]
+GENERIC_WRITE = 0x40000000
+OPEN_EXISTING = 3
+INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+
 
 def _get_pipe():
-    """Get or open the Named Pipe connection to C++."""
+    """Get or open the Named Pipe connection to C++ via Windows API."""
     global _pipe_handle
     if _pipe_handle is not None:
         return _pipe_handle
-    try:
-        import win32file
-        _pipe_handle = win32file.CreateFile(
-            PIPE_NAME,
-            win32file.GENERIC_WRITE,
-            0, None,
-            win32file.OPEN_EXISTING,
-            0, None
-        )
-        print(f"[Pipe] Connected to {PIPE_NAME}")
-        return _pipe_handle
-    except Exception:
-        pass
-    # Fallback: open as regular file (works for Named Pipes on Windows)
-    try:
-        _pipe_handle = open(PIPE_NAME, 'wb')
-        print(f"[Pipe] Connected to {PIPE_NAME} (file mode)")
-        return _pipe_handle
-    except Exception as e:
-        sys.stderr.write(f"\n[Pipe] Cannot connect: {e}\n")
+    handle = _kernel32.CreateFileW(
+        PIPE_NAME,
+        GENERIC_WRITE,
+        0, None,
+        OPEN_EXISTING,
+        0, None
+    )
+    if handle == INVALID_HANDLE_VALUE:
+        err = _kernel32.GetLastError()
+        sys.stderr.write(f"\n[Pipe] Cannot connect (error={err})\n")
         return None
+    _pipe_handle = handle
+    print(f"[Pipe] Connected to {PIPE_NAME}")
+    return _pipe_handle
 
 
 def send_io_command(cmd_json):
@@ -104,24 +110,15 @@ def send_io_command(cmd_json):
         if pipe is None:
             return
         data = (cmd_json + '\n').encode('utf-8')
-        try:
-            if hasattr(pipe, 'write'):
-                pipe.write(data)
-                pipe.flush()
-            else:
-                import win32file
-                win32file.WriteFile(pipe, data)
-        except Exception as e:
-            sys.stderr.write(f"\n[Pipe] Write error: {e}\n")
-            # Reset connection for next attempt
-            try:
-                if hasattr(pipe, 'close'):
-                    pipe.close()
-                else:
-                    import win32file
-                    pipe.Close()
-            except Exception:
-                pass
+        written = wintypes.DWORD(0)
+        ok = _kernel32.WriteFile(
+            pipe, data, len(data),
+            ctypes.byref(written), None
+        )
+        if not ok:
+            err = _kernel32.GetLastError()
+            sys.stderr.write(f"\n[Pipe] Write error (error={err})\n")
+            _kernel32.CloseHandle(pipe)
             _pipe_handle = None
 
 
@@ -208,10 +205,10 @@ async def ws_handler(websocket):
                 data = json.loads(message)
                 io7_cmd = data.get("io7", "")
                 if io7_cmd in ("A1", "A0", "B1", "B0"):
-                    send_io_command(json.dumps({"io7": io7_cmd}))
+                    send_io_command(f'{{"io7":"{io7_cmd}"}}')
                 io8_cmd = data.get("io8", "")
                 if io8_cmd in ("B1", "B0"):
-                    send_io_command(json.dumps({"io8": io8_cmd}))
+                    send_io_command(f'{{"io8":"{io8_cmd}"}}')
             except Exception:
                 pass
     except Exception:
