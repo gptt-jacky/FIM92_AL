@@ -1586,8 +1586,18 @@ C++ 在 `--json` 模式下新增 Named Pipe listener thread（`\\.\pipe\MANPADS_
 - C++ 非 `--json` 模式的鍵盤控制完全不受影響
 - 軟體組 WebSocket 介面零變動（格式、指令完全相同）
 
+### 實測踩坑紀錄
+
+| 問題 | 根因 | 修法 |
+|------|------|------|
+| Python `open()` 開 pipe 報 `No such file or directory` | Python `open()` 對 Named Pipe 支援不穩定 | 改用 `ctypes.windll.kernel32.CreateFileW` Windows API |
+| `CreateFileW` 成功但 `WriteFile` 報 error 6 (INVALID_HANDLE) | 64-bit Windows 上 ctypes 預設把 handle 截斷為 32-bit int | 設定 `_kernel32.CreateFileW.restype = wintypes.HANDLE` |
+| Pipe 連線成功但 C++ 收不到指令（無 `[Pipe] IO7` 輸出） | `json.dumps()` 產生 `"io7": "B1"`（冒號後有空格），C++ parser 搜尋 `"io7":"` 不匹配 | Python 改用 f-string 直接組 compact JSON |
+| Release 資料夾的 exe 是舊版 | `MANPADS_Release_V1.1/build/Release/` 的 exe 未更新 | 手動複製新編譯的 exe |
+
 ### 效果
 
 - C++ 視窗可最小化在背景執行
 - 不再依賴輸入法狀態
 - 省掉 PowerShell 啟動開銷，延遲更低
+- Release 版本更新至 V1.1
