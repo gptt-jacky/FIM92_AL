@@ -1506,6 +1506,45 @@ if (hw.type == "B") {
 
 ---
 
+## Phase 13：IO 控制改用 Named Pipe 雙向通訊（待實作）(2026-03-11)
+
+**目標**：消除 IO 控制對鍵盤視窗 focus 和英文輸入法的依賴。
+
+### 13.1 現有問題
+
+目前 data_server.py 收到軟體組 WebSocket IO 指令（如 `{"io7":"A1"}`）後，透過 **PowerShell `SendKeys`** 將按鍵發送到 C++ console 視窗。此機制有三個限制：
+
+| 限制 | 原因 |
+|------|------|
+| C++ 視窗不能最小化 | `AppActivate` + `SendKeys` 需視窗可被激活 |
+| 系統輸入法必須切英文 | `SendKeys` 送出的字元會被中文輸入法攔截，`_getch()` 收不到 |
+| 延遲較高 | 每次指令需啟動 PowerShell subprocess |
+
+### 13.2 計畫方案：Named Pipe 雙向通訊
+
+```
+軟體組 → WebSocket → data_server.py → Named Pipe → C++ 主迴圈 → outputPin.setState()
+```
+
+**C++ 端改動**：
+- 主迴圈新增 named pipe listener（non-blocking），接收 IO 指令字串（如 `"A1"`, `"B0"`, `"CB1"`）
+- 收到指令直接呼叫 `outputPinIO7.setState()` / `outputPinIO8.setState()`
+- 保留鍵盤控制作為 fallback（調試用）
+
+**Python 端改動**：
+- `send_key_to_tracker()` 改為寫 named pipe
+- 移除 PowerShell `SendKeys` 依賴
+
+**預期效果**：
+- 不依賴視窗 focus → 視窗可最小化甚至隱藏
+- 不依賴輸入法 → 中英文皆可
+- 延遲更低 → 省掉 PowerShell 啟動時間
+- 架構更乾淨 → 直接 IPC，不經過鍵盤模擬
+
+**狀態**：待實作
+
+---
+
 ## 為什麼使用本地有線連接？
 
 - **延遲最低**：USB 直連，可達 Antilatency 標榜的 **2ms 低延遲**
@@ -1514,3 +1553,41 @@ if (hw.type == "B") {
 - **資料完整**：不需要壓縮、不需要協議轉換
 
 > 注意：若改為無線傳輸 (WiFi/4G)，會引入 10-100ms+ 的額外延遲，且受網路品質影響。本地有線方案是追蹤應用的最佳選擇。
+
+---
+
+## Phase 12: Named Pipe 雙向 IO 控制 (2026-03-12)
+
+### 問題
+
+data_server.py 收到軟體組 WebSocket IO 指令後，透過 PowerShell `SendKeys` 模擬鍵盤輸入轉發到 C++ console 視窗。此方案有三個限制：
+
+1. C++ console 視窗不能最小化（SendKeys 需要視窗 focus）
+2. 系統輸入法必須切英文（否則 `_getch()` 收不到正確字元）
+3. 依賴 PowerShell 啟動，延遲較高
+
+### 解法
+
+C++ 在 `--json` 模式下新增 Named Pipe listener thread（`\\.\pipe\MANPADS_IO`），Python data_server.py 直接透過 Named Pipe 寫入 JSON 指令，C++ 收到後直接呼叫 `outputPin.setState()`。
+
+### 改動檔案
+
+| 檔案 | 改動 |
+|------|------|
+| `src/TrackingMinimalDemoCpp.cpp` | 新增 Named Pipe listener（僅 `--json` 模式），收到 `{"io7":"A1"}` / `{"io8":"B1"}` 直接控制 IO |
+| `web/data_server.py` | `send_key_to_tracker()` → `send_io_command()`，改為寫 Named Pipe |
+| `faymantu/data_server.py` | 同步更新 |
+
+### 技術細節
+
+- Pipe name: `\\.\pipe\MANPADS_IO`
+- 指令格式：沿用 WebSocket JSON（`{"io7":"A1"}`），一行一筆
+- C++ 端用 `std::mutex` 保護 command queue，主迴圈每輪消費
+- C++ 非 `--json` 模式的鍵盤控制完全不受影響
+- 軟體組 WebSocket 介面零變動（格式、指令完全相同）
+
+### 效果
+
+- C++ 視窗可最小化在背景執行
+- 不再依賴輸入法狀態
+- 省掉 PowerShell 啟動開銷，延遲更低

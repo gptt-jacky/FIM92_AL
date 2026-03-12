@@ -197,6 +197,28 @@ if (nodeType == "B" || nodeType == "D") continue;  // 跳過 Alt Tracker
 - 軟體端任何時刻可立即送 `{"io7":"A0"}`，不需等硬體回報
 - 頭盔震動器（Tag B）維持軟體直接控制，不受此變更影響
 
+### 13. IO 控制改用 Named Pipe（取代 PowerShell SendKeys）
+
+**變更日期：** 2026-03-12
+
+**問題：** data_server.py 收到 WebSocket IO 指令後，透過 PowerShell `SendKeys` 模擬鍵盤輸入送給 C++。限制：C++ 視窗不能最小化、輸入法必須切英文、PowerShell 啟動延遲。
+
+**解法：** C++ 在 `--json` 模式下開 Named Pipe（`\\.\pipe\MANPADS_IO`），Python 直接寫入 JSON 指令。
+
+**C++ 端：**
+- 新增 `namedPipeListener()` 函式，獨立 thread 持續監聽
+- `PipeIOCommand` 結構 + `g_pipeCommands` queue（mutex 保護）
+- 主迴圈每輪消費 queue，直接呼叫 `setState()`
+- 非 `--json` 模式完全不受影響（鍵盤控制保留）
+
+**Python 端：**
+- `send_key_to_tracker()` 整個移除（含 `import subprocess`）
+- 新增 `send_io_command(cmd_json)` — 開啟 Named Pipe 寫入 JSON + `\n`
+- 指令格式不變：`{"io7":"A1"}`、`{"io8":"B1"}`
+- 不再需要 toggle 比對邏輯（C++ 端為 set-to-state）
+
+**影響範圍：** 僅 data_server.py（RunDataServer.bat 路徑）。pipe_server.py、viewer、monitor、ws_client 全部不動。軟體組 WebSocket 介面零變動。
+
 ## 日期
 
 - 初始討論：2026-02-25
@@ -205,3 +227,4 @@ if (nodeType == "B" || nodeType == "D") continue;  // 跳過 Alt Tracker
 - IO7 per-device 控制：2026-02-26
 - IO-only 架構 + IO8 output：2026-03-03
 - IO7 語義變更（保險授權）：2026-03-09
+- IO 控制改用 Named Pipe：2026-03-12

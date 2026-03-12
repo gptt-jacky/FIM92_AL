@@ -16,9 +16,12 @@
 #endif
 #if defined(_WIN32)
 	#include <conio.h>
+	#include <windows.h>
 #endif
 #include <thread>
 #include <chrono>
+#include <mutex>
+#include <atomic>
 
 // ============================================================
 // Scene configuration
@@ -218,6 +221,90 @@ static std::string typeToTag(const std::string& type) {
 }
 
 // ============================================================
+// Named Pipe IO command receiver (--json mode only)
+// Accepts JSON commands: {"io7":"A1"}, {"io8":"B1"}, etc.
+// ============================================================
+#if defined(_WIN32)
+struct PipeIOCommand {
+    std::string field;  // "io7" or "io8"
+    char tag;           // 'A', 'B', etc.
+    bool state;         // true=ON, false=OFF
+};
+
+static std::vector<PipeIOCommand> g_pipeCommands;
+static std::mutex g_pipeMutex;
+static std::atomic<bool> g_pipeRunning{false};
+
+// Simple parser: extract {"io7":"A1"} or {"io8":"B0"} from a line
+static bool parsePipeCommand(const std::string& line, PipeIOCommand& cmd) {
+    // Find "io7" or "io8"
+    for (const char* field : {"io7", "io8"}) {
+        std::string search = std::string("\"") + field + "\":\"";
+        auto pos = line.find(search);
+        if (pos == std::string::npos) continue;
+        pos += search.size();
+        if (pos + 1 >= line.size()) return false;
+        cmd.field = field;
+        cmd.tag = line[pos];       // 'A', 'B', etc.
+        cmd.state = (line[pos + 1] == '1');
+        return true;
+    }
+    return false;
+}
+
+static void namedPipeListener() {
+    const char* pipeName = "\\\\.\\pipe\\MANPADS_IO";
+    while (g_pipeRunning) {
+        HANDLE hPipe = CreateNamedPipeA(
+            pipeName,
+            PIPE_ACCESS_DUPLEX,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+            PIPE_UNLIMITED_INSTANCES,
+            512, 512, 0, NULL);
+        if (hPipe == INVALID_HANDLE_VALUE) {
+            std::cerr << "[Pipe] Failed to create named pipe, error=" << GetLastError() << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+        // Wait for client connection
+        if (!ConnectNamedPipe(hPipe, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) {
+            CloseHandle(hPipe);
+            continue;
+        }
+        std::cerr << "[Pipe] Client connected" << std::endl;
+
+        // Read commands from this client
+        char buf[512];
+        std::string remainder;
+        while (g_pipeRunning) {
+            DWORD bytesRead = 0;
+            BOOL ok = ReadFile(hPipe, buf, sizeof(buf) - 1, &bytesRead, NULL);
+            if (!ok || bytesRead == 0) break;
+            buf[bytesRead] = '\0';
+            remainder += buf;
+            // Process complete lines
+            size_t nlPos;
+            while ((nlPos = remainder.find('\n')) != std::string::npos) {
+                std::string line = remainder.substr(0, nlPos);
+                remainder = remainder.substr(nlPos + 1);
+                // Trim \r
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.empty()) continue;
+                PipeIOCommand cmd;
+                if (parsePipeCommand(line, cmd)) {
+                    std::lock_guard<std::mutex> lock(g_pipeMutex);
+                    g_pipeCommands.push_back(cmd);
+                }
+            }
+        }
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+        std::cerr << "[Pipe] Client disconnected" << std::endl;
+    }
+}
+#endif
+
+// ============================================================
 // Check for keyboard input (non-blocking)
 // ============================================================
 static int getKeyPress() {
@@ -337,6 +424,13 @@ int main(int argc, char* argv[]) {
         setvbuf(stdout, NULL, _IONBF, 0);  // C stdio: fully unbuffered
         std::cout.setf(std::ios::unitbuf);  // C++ stream: flush after every op
         std::cerr << "[JSON Mode] Loaded " << scenes.size() << " scene(s)" << std::endl;
+#if defined(_WIN32)
+        // Start Named Pipe listener for IO commands
+        g_pipeRunning = true;
+        std::thread pipeThread(namedPipeListener);
+        pipeThread.detach();
+        std::cerr << "[JSON Mode] Named Pipe listener started: \\\\.\\pipe\\MANPADS_IO" << std::endl;
+#endif
     }
 
     // ---- Load SDK libraries ----
@@ -515,6 +609,37 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
+
+        // ---- Handle Named Pipe IO commands (--json mode) ----
+#if defined(_WIN32)
+        if (jsonMode) {
+            std::vector<PipeIOCommand> cmds;
+            {
+                std::lock_guard<std::mutex> lock(g_pipeMutex);
+                cmds.swap(g_pipeCommands);
+            }
+            for (auto& cmd : cmds) {
+                for (auto& hw : hwExtensions) {
+                    if (hw.cotask == nullptr || hw.cotask.isTaskFinished()) continue;
+                    if (hw.type.empty() || hw.type[0] != cmd.tag) continue;
+                    if (cmd.field == "io7") {
+                        hw.io7State = cmd.state;
+                        hw.outputPinIO7.setState(cmd.state
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cerr << "[Pipe] IO7[" << cmd.tag << "]: " << (cmd.state ? "ON" : "OFF") << std::endl;
+                    } else if (cmd.field == "io8" && hw.hasIO8Output) {
+                        hw.io8State = cmd.state;
+                        hw.outputPinIO8.setState(cmd.state
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cerr << "[Pipe] IO8[" << cmd.tag << "]: " << (cmd.state ? "ON" : "OFF") << std::endl;
+                    }
+                    break;
+                }
+            }
+        }
+#endif
 
         const uint32_t currentUpdateId = network.getUpdateId();
 
@@ -887,6 +1012,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
+#if defined(_WIN32)
+    g_pipeRunning = false;
+#endif
     for (auto& t : trackers) {
         t.cotask = nullptr;
     }
