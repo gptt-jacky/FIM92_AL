@@ -1601,3 +1601,70 @@ C++ 在 `--json` 模式下新增 Named Pipe listener thread（`\\.\pipe\MANPADS_
 - 不再依賴輸入法狀態
 - 省掉 PowerShell 啟動開銷，延遲更低
 - Release 版本更新至 V1.1
+
+---
+
+## Phase 12：自製 ALPCB + 無線 IO 驗證 (2026-03-17)
+
+**目標**：驗證自製 PCB（ALPCB）取代官方 Socket 用於 IO-only 裝置（Tag B / Tag D），並確認無線模式可行性。
+
+### 背景
+
+Tag B（主射手頭盔震動器）和 Tag D（對講機）為純 IO 裝置，不需要 Alt Tracker 定位功能。基於成本與客製化考量，改用自製 PCB（代號 **ALPCB**）取代官方 Socket。
+
+ALPCB 基於 Antilatency **Socket Reference Design**（nRF52840 模組），具備：
+- USB Type-C 連接
+- Antilatency Hardware Extension Interface（IO 腳位控制）
+- 2.4GHz 無線功能（Antilatency Radio Protocol）
+
+裝置在 AntilatencyService 中的名稱：`ACHA0Socket_ReferenceDesign_RUA`
+
+### 問題：BAT 啟動後 C++ 偵測不到 ALPCB
+
+**現象**：
+- AntilatencyService Device Network 中能看到 ALPCB 的 node
+- 但 C++ 程式（`TrackingMinimalDemo.exe`）執行後沒有印出 `Extension Module connected`
+- 官方 URS（Socket）正常偵測
+
+**調查過程**：
+
+1. 排除 USB device filter 問題 — 分析 SDK source `AllUsbDevices` 常數（VID=0x3237, PID mask=0xF000），確認涵蓋 ALPCB 的 USB 識別碼
+2. 排除 HW Extension Interface 不支援 — ALPCB 基於 Reference Design，韌體原生支援
+3. 排除 AntilatencyService 佔用 — 關閉 AS 後問題依舊
+
+**根因**：
+
+ALPCB 在 AntilatencyService 中的 **Type 屬性設定錯誤**。C++ 程式依賴 Type 屬性（必須為 `"B"` 或 `"D"`）來配對裝置與 IO pin 配置。Type 不匹配時，裝置雖然被 Device Network 發現，但不會被正確初始化。
+
+**修法**：在 AntilatencyService → Device Network 中，將 ALPCB 的 Type 分別設為 `B` 和 `D`（大寫單字元）。
+
+### 無線模式驗證
+
+確認 ALPCB 支援無線模式（先前在 Unity 專案中已長期使用）：
+
+```
+有線模式:
+  PC ──USB── ALPCB [B]
+  PC ──USB── ALPCB [D]
+
+無線模式:
+  PC ──USB── URS (Access Point 模式)
+                  ╲ 2.4GHz Antilatency Radio Protocol
+              ALPCB [B] (Client 模式, 外部供電)
+              ALPCB [D] (Client 模式, 外部供電)
+```
+
+- URS 作為 Access Point 透過 USB 連接 PC
+- ALPCB 作為 Client 透過 2.4GHz 無線連接 URS
+- SDK Device Network 對無線裝置的呈現方式與 USB 裝置一致（透明）
+- **HW Extension Interface IO（輸入 + 輸出）在無線模式下正常運作**
+- C++ 程式碼**無需任何修改**即可支援無線模式
+
+### 結論
+
+| 項目 | 結果 |
+|------|------|
+| ALPCB 有線 IO | ✅ 正常（Type 設對即可） |
+| ALPCB 無線 IO | ✅ 正常（URS Access Point + ALPCB Client） |
+| C++ 程式碼改動 | 無需改動 |
+| 根因 | AntilatencyService 中 Type 屬性設定錯誤 |

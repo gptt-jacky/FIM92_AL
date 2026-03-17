@@ -63,7 +63,7 @@ FIM92_C++/
 | 輔助腳本 | Python 3.x (`websockets` 套件) |
 | 建構系統 | CMake |
 | 平台 | Windows 11 (64-bit) |
-| 硬體 | Antilatency Alt Tracker + HW Extension Module |
+| 硬體 | Antilatency Alt Tracker + HW Extension Module（官方 Socket + 自製 ALPCB） |
 | SDK | Antilatency SDK 4.5.0 (Rev.367) |
 
 ### 編譯指令
@@ -113,6 +113,14 @@ scripts/RunTracking.bat
 - 2 個 `createOutputPin` + Alt Tracker cotask = 衝突（Alt 不啟動）
 - Tag B/D 為 IO-only（不跑 Alt Tracker）→ Tag B 可安全使用 IO7+IO8 雙 Output
 - Tag E/F 為 Alt-only（不跑 HW Extension）
+
+### ALPCB 自製 PCB
+
+- Tag B/D 使用自製 PCB（代號 **ALPCB**），基於 Antilatency Socket Reference Design（nRF52840）
+- AntilatencyService 中名稱：`ACHA0Socket_ReferenceDesign_RUA`
+- 支援 USB 直連 和 URS 無線模式（2.4GHz Antilatency Radio Protocol）
+- **Type 屬性必須正確設定**（`"B"` / `"D"`），否則 C++ 程式無法配對裝置
+- SDK Device Network 對無線裝置的處理與 USB 裝置一致，C++ 程式碼無需改動
 
 ---
 
