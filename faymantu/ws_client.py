@@ -94,7 +94,7 @@ async def main(url):
                 + "-" * 70 + "\n\n"
                 + message + "\n\n"
                 + "-" * 70 + "\n"
-                + f"  [A] IO7-A: {io7a}  [B] IO7-B: {io7b}  [C] IO8-B: {io8b}  |  Ctrl+C to quit\n"
+                + f"  [A] 允許後座力: {io7a}  [B] 小震動(IO7): {io7b}  [C] 大震動(IO8,需+IO7): {io8b}  |  Ctrl+C to quit\n"
             )
             sys.stdout.write(output)
             sys.stdout.flush()
