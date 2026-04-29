@@ -25,3 +25,13 @@ endif (UNIX)
 
 add_custom_command(TARGET TrackingMinimalDemo POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ANTILATENCY_LIBS} $<TARGET_FILE_DIR:TrackingMinimalDemo>)
+
+add_executable(MinimalReproduction src/MinimalReproduction.cpp)
+if (MSVC)
+    target_compile_options(MinimalReproduction PRIVATE /utf-8)
+endif()
+if (UNIX)
+    target_link_libraries(MinimalReproduction dl stdc++fs pthread)
+endif()
+add_custom_command(TARGET MinimalReproduction POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ANTILATENCY_LIBS} $<TARGET_FILE_DIR:MinimalReproduction>)

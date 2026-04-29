@@ -49,11 +49,14 @@ struct HWExtInstance {
     Antilatency::HardwareExtensionInterface::ICotask cotask;
     std::string type;
     std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO6;  // Tag G only (3rd output)
+    bool io6State = false;
+    bool hasIO6Output = false;  // true only for Tag G
     Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7;
     bool io7State = false;
-    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO8;  // Tag B only (大震動)
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO8;  // Tag B/G (大震動)
     bool io8State = false;
-    bool hasIO8Output = false;  // true only for Tag B
+    bool hasIO8Output = false;  // true for Tag B and G
 };
 
 // ============================================================
@@ -216,7 +219,7 @@ std::string getParentPath(const char *inp){
 // Tag = Type property directly (A/B/C/D set in AntilatencyService)
 // ============================================================
 static std::string typeToTag(const std::string& type) {
-    if (type == "A" || type == "B" || type == "C" || type == "D" || type == "E" || type == "F") return type;
+    if (type == "A" || type == "B" || type == "C" || type == "D" || type == "E" || type == "F" || type == "G") return type;
     return "";  // Unknown type, no tag
 }
 
@@ -367,6 +370,9 @@ static void printUsage(const std::string& progName) {
     std::cout << "  [A]      Toggle IO7 Tag A (後座力)" << std::endl;
     std::cout << "  [B]      Toggle IO7 Tag B (小震動)" << std::endl;
     std::cout << "  [C]      Toggle IO8 Tag B (大震動)" << std::endl;
+    std::cout << "  [G]      Toggle IO6 Tag G (測試用)" << std::endl;
+    std::cout << "  [H]      Toggle IO7 Tag G (測試用)" << std::endl;
+    std::cout << "  [I]      Toggle IO8 Tag G (測試用)" << std::endl;
     std::cout << "  [O]      Toggle IO7 all devices" << std::endl;
     std::cout << "  [Q]      Quit" << std::endl;
 }
@@ -527,7 +533,7 @@ int main(int argc, char* argv[]) {
     };
     const int inputPinCount = 7;
 
-    if (!jsonMode) std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [A] IO7-A, [B] IO7-B, [C] IO8-B, [O] IO7-All, [Q] quit)" << std::endl;
+    if (!jsonMode) std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [A] IO7-A, [B] IO7-B, [C] IO8-B, [G] IO6-G, [H] IO7-G, [I] IO8-G, [O] IO7-All, [Q] quit)" << std::endl;
 
     // ============================================================
     // Main loop
@@ -579,6 +585,39 @@ int main(int argc, char* argv[]) {
                             ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
                             : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         std::cout << "\n>> IO8[B] (大震動): " << (hw.io8State ? "ON" : "OFF") << std::endl;
+                        break;
+                    }
+                }
+            } else if (key == 'g' || key == 'G') {
+                for (auto& hw : hwExtensions) {
+                    if (hw.type == "G" && hw.hasIO6Output && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.io6State = !hw.io6State;
+                        hw.outputPinIO6.setState(hw.io6State
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cout << "\n>> IO6[G]: " << (hw.io6State ? "ON" : "OFF") << std::endl;
+                        break;
+                    }
+                }
+            } else if (key == 'h' || key == 'H') {
+                for (auto& hw : hwExtensions) {
+                    if (hw.type == "G" && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.io7State = !hw.io7State;
+                        hw.outputPinIO7.setState(hw.io7State
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cout << "\n>> IO7[G]: " << (hw.io7State ? "ON" : "OFF") << std::endl;
+                        break;
+                    }
+                }
+            } else if (key == 'i' || key == 'I') {
+                for (auto& hw : hwExtensions) {
+                    if (hw.type == "G" && hw.hasIO8Output && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.io8State = !hw.io8State;
+                        hw.outputPinIO8.setState(hw.io8State
+                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
+                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        std::cout << "\n>> IO8[G]: " << (hw.io8State ? "ON" : "OFF") << std::endl;
                         break;
                     }
                 }
@@ -732,20 +771,36 @@ int main(int argc, char* argv[]) {
                     hw.type = hwNodeType;
 
                     // Per-type pin configuration:
-                    // Tag B (IO-only): 6 input (IO1-IO6) + 2 output (IO7 小震動, IO8 大震動) = 8 pins
-                    //   No Alt Tracker on Tag B, so 2 output pins are safe
-                    // Others (A/C/D): 7 input (IO1-IO6, IO8) + 1 output (IO7) = 8 pins
+                    // Tag B (IO-only): 6 input (IO1-IO6) + IO7 + IO8 output = 8 pins
+                    // Tag G (test): 5 input (IO1-IO5) + IO6 + IO7 + IO8 output = 8 pins (3 outputs)
+                    // Others (A/C/D): 7 input (IO1-IO6, IO8) + IO7 output = 8 pins
                     if (hw.type == "B") {
-                        // 6 input pins: IO1, IO2, IOA3, IOA4, IO5, IO6
                         for (int i = 0; i < 6; i++) {
                             hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
                         }
-                        // IO7 output (小震動)
                         hw.outputPinIO7 = cotask.createOutputPin(
                             Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
                             Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         hw.io7State = false;
-                        // IO8 output (大震動)
+                        hw.outputPinIO8 = cotask.createOutputPin(
+                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO8,
+                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        hw.io8State = false;
+                        hw.hasIO8Output = true;
+                    } else if (hw.type == "G") {
+                        // 5 input pins: IO1, IO2, IOA3, IOA4, IO5
+                        for (int i = 0; i < 5; i++) {
+                            hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
+                        }
+                        hw.outputPinIO6 = cotask.createOutputPin(
+                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO6,
+                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        hw.io6State = false;
+                        hw.hasIO6Output = true;
+                        hw.outputPinIO7 = cotask.createOutputPin(
+                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
+                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
+                        hw.io7State = false;
                         hw.outputPinIO8 = cotask.createOutputPin(
                             Antilatency::HardwareExtensionInterface::Interop::Pins::IO8,
                             Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
@@ -835,14 +890,13 @@ int main(int argc, char* argv[]) {
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
                         oss << " IO[" << tag << "]:";
-                        // First 6 input pins: IO1, IO2, IOA3, IOA4, IO5, IO6
-                        for (int i = 0; i < 6; i++) {
+                        int inputLoopCount = hw.hasIO6Output ? 5 : 6;
+                        for (int i = 0; i < inputLoopCount; i++) {
                             auto pinState = hw.inputPins[i].getState();
                             oss << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
                         }
-                        // IO7 output bit
+                        oss << (hw.hasIO6Output ? (hw.io6State ? "1" : "0") : "");
                         oss << (hw.io7State ? "1" : "0");
-                        // IO8: output for Tag B, input for others
                         if (hw.hasIO8Output) {
                             oss << (hw.io8State ? "1" : "0");
                         } else {
@@ -902,10 +956,12 @@ int main(int argc, char* argv[]) {
                     auto hwIt = hwByType.find(t.type);
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
-                        for (int i = 0; i < 6; i++) {
+                        int inputLoopCount = hw.hasIO6Output ? 5 : 6;
+                        for (int i = 0; i < inputLoopCount; i++) {
                             auto pinState = hw.inputPins[i].getState();
                             ioBits[i] = (pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
                         }
+                        ioBits[5] = hw.hasIO6Output ? (hw.io6State ? '1' : '0') : ioBits[5];
                         ioBits[6] = hw.io7State ? '1' : '0';
                         if (hw.hasIO8Output) {
                             ioBits[7] = hw.io8State ? '1' : '0';

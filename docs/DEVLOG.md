@@ -1764,3 +1764,118 @@ if transformed:
 ```
 
 **行為**：`rx_fps` 顯示的是 `os.read()` chunk 數，通常高於實際 JSON 行數。這是**預期行為**——偏高的數字對監控有用，不需修改。
+
+---
+
+## Phase 16：Alt Tracker + 雙 Output Pin 衝突調查 + Support Ticket (2026-04-29)
+
+### 16.1 問題背景
+
+在 MANPADS 正式場景中，Tag B（主射手頭盔震動器）需要 **IO7 + IO8 雙輸出**（小震動 + 大震動），同時在同一物理裝置上同步跑 HW Extension cotask。但觀察到以下現象：
+
+- Alt Tracker LED 不亮綠燈（維持橘色）
+- stability 卡在 0 或 1，永遠不到 2（6DOF）
+- 無任何例外、無回傳錯誤 — **完全沉默失敗**
+- 移除第 2 個 `createOutputPin()` 後立即恢復正常
+
+### 16.2 Test Matrix（已驗證）
+
+| 配置 | 結果 |
+|------|------|
+| 7 input + IO7 output + IO8 output + Alt Tracker | ❌ Alt 沉默失敗 |
+| IO7 + IO8 output（加 try-catch fallback）+ Alt Tracker | ❌ 無例外，Alt 仍失敗 |
+| IO6 + IO7 output（換不同 pin pair）+ Alt Tracker | ❌ 相同失敗 |
+| 5 input + IO7 output + IO8 output + Alt Tracker | ❌ 相同失敗 |
+| 7 input + **IO7 output 單一** + Alt Tracker | ✅ 正常運作 |
+| IO7 + IO8 output + **無 Alt Tracker**（HW Extension only） | ✅ 正常運作 |
+
+**結論：限制點精確在「2 個 Output pin + Alt Tracker 同裝置 = 衝突」。**
+
+### 16.3 根因假設
+
+Alt Tracker IMU 通訊（SPI/DMA/硬體 Timer）與第 2 個 Output pin driver 在裝置韌體層面共用同一資源。啟動 2 個 output driver 後，Alt Tracker cotask 無法取得所需硬體資源，但 SDK 未將錯誤向上傳遞。
+
+### 16.4 Bug 性質判斷
+
+| 面向 | 結論 |
+|------|------|
+| 硬體規格書（ExtensionModule 頁）說每個 IO 均支援 output | 規格未記載此限制 → **Documentation Bug（至少）** |
+| StarterKit Demo 展示 2 個 output（但不含 Alt Tracker） | 官方 Demo 也是雙 output，印證使用者合理期待 |
+| 沉默失敗，無例外 | **API/SDK Bug** — 應拋錯或回傳 false，而非假裝成功 |
+| 若 Antilatency 認定這是韌體限制 | 仍需補充文件 → 仍是 Bug（文件遺漏） |
+
+**結論：不論根因是韌體限制或實作缺陷，沉默失敗本身確定是 SDK bug。**
+
+### 16.5 現行 Workaround
+
+將裝置依功能拆分，避免在同一裝置上同時使用 Alt Tracker + 雙 Output：
+
+| 角色 | Alt Tracker | HW Extension | Output pins |
+|------|:-----------:|:------------:|-------------|
+| Alt + IO 裝置（A/C） | ✅ | ✅ | 最多 **1** 個 Output（IO7） |
+| IO-only 裝置（B/D） | ❌ 跳過 | ✅ | 可安全使用 **2** 個 Output（IO7 + IO8） |
+| Alt-only 裝置（E/F） | ✅ | ❌ | 無 IO |
+
+### 16.6 Support Ticket 準備
+
+- **提交對象**：Antilatency 官方 Support
+- **打包資料夾**：`Antilatency Support/`
+- **Ticket Summary**：`[C++ SDK 4.5.0] Alt Tracking cotask fails when Hardware Extension cotask creates 2 output pins on the same physical Socket`
+- **附件**：
+  - `FORM_FIELDS.md` — Service Desk 欄位填寫輔助，含 Name/Organization/Contact/Software/SDK/Time Zone/Summary/Attachment 建議
+  - `SUPPORT_TICKET.md` — 完整問題描述、Test Matrix、C++ SDK Questions
+  - `MinimalReproduction.cpp` — 獨立最小復現程式，使用 `nodeGetParent()` 配對同一 physical Socket 的 Alt/HW child nodes
+- **Future requirement**：同步詢問未來若需要 3 output pins + Alt Tracking，官方支援上限、限制來源與建議硬體架構。
+- **SDK 版本**：Antilatency SDK 4.5.0 (Rev.367)
+- **引用官方連結**：
+  - TrackingMinimalDemoCpp Demo — 程式碼基礎
+  - ExtensionInterface StarterKit Demo — 雙 output 參考
+  - Universal Radio Socket — 說明無線模式也有相同問題
+  - ExtensionModule 硬體頁 — 規格書說每個 IO 支援 output，無記載限制
+
+### 16.7 Tag G：主程式內的對照實驗設計
+
+為在正式場景下可重現衝突，新增測試用 Tag G：
+
+| Tag | 目的 | Alt Tracker | Output pins |
+|-----|------|:-----------:|-------------|
+| B（對照組） | IO-only，已知正常 | ❌ | IO7 + IO8 |
+| G（實驗組） | Alt + 雙 output，預期衝突 | ✅ | IO7 + IO8（與 B 相同） |
+
+**程式碼變更（`TrackingMinimalDemoCpp.cpp`）：**
+1. `typeToTag()`：加入 `"G"`
+2. HW Extension pin 配置：`if (hw.type == "B" || hw.type == "G")` — 套用 6 input + IO7 + IO8 雙 output
+3. Alt Tracker skip list：G **刻意不加入**（`"B"` 和 `"D"` 跳過，G 要跑 Alt Tracker 才能觀察衝突）
+4. 鍵盤控制新增：`[G]` = Tag G IO7，`[H]` = Tag G IO8
+
+**預期實驗結果**（待有完整追蹤環境時驗證）：
+- Tag A（單 output）→ stability 到 2（LED 綠）
+- Tag G（雙 output + Alt）→ stability 卡 1 或 0（LED 橘）= **確認衝突**
+
+### 16.8 節點匹配關鍵發現
+
+Alt Tracker 和 HW Extension 在 Antilatency Device Network 中對同一物理 Socket 裝置使用**不同的子節點 handle**（sibling child nodes，共用同一 parent）。必須用 `network.nodeGetParent()` 比對，而非直接比較 node handle：
+
+```cpp
+auto parentA = network.nodeGetParent(an);  // Alt Tracking 節點的 parent
+auto parentH = network.nodeGetParent(hn);  // HW Extension 節點的 parent
+if (parentA == parentH) { /* 同一物理裝置 */ }
+```
+
+錯誤做法（`an == hn`）永遠不匹配，會導致「找不到裝置」。
+
+### 16.9 Tag G 升級：3 Output 實測（2026-04-29）
+
+原本 Tag G = 6 input + IO7+IO8 雙 output。升級為：5 input (IO1-IO5) + IO6+IO7+IO8 三 output，實測：
+- G/H/I 鍵分別控制 IO6/IO7/IO8 三顆 LED，全部正常
+- Alt Tracker 同時運作（S:1，3DOF）
+- **結論：Alt Tracker + 3 output 在主程式架構下可行**
+
+程式碼變更：HWExtInstance 新增 IO6 欄位；B 和 G 拆分獨立 if/else if；IO 字串加 `hasIO6Output` 判斷修正越界；鍵盤 G=IO6 / H=IO7 / I=IO8；monitor.py footer 補說明。
+
+### 16.10 下次待實作：IOA3/IOA4 類比輸入兩段設計
+
+- `createInputPin` → `createAnalogPin`，`getValue()` 回傳 0.0–1.0
+- 門檻：< 0.2 = 無訊號，0.2–0.7 = 1.5V 段，> 0.7 = 3.3V 段
+- **未決定**：IO 字串三種狀態表示方式（1bit / 2bit / 另加 analog 欄位）
+- 確定後再實作

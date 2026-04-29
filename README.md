@@ -1,5 +1,10 @@
 # MANPADS Antilatency Tracking System
 
+## Antilatency Support Package (2026-04-29)
+
+- `Antilatency Support/` 包含 SDK 4.5.0 支援票（Alt Tracking + HW Extension 多 output 限制詢問）與最小復現程式。
+- 目前 Tag G 實測（Alt + 3 output）可正常運作，支援票暫不送出，待 IOA3/IOA4 類比兩段設計完成後再評估。
+
 Antilatency Alt 6-DOF Tracking + HW IO C++ 應用程式，搭配 Web 3D 即時視覺化介面。
 
 ---
@@ -626,6 +631,9 @@ cmake -B build && cmake --build build
 | `A` | Tag A IO7 Output (保險開關) |
 | `B` | Tag B IO7 Output (小震動) |
 | `C` | Tag B IO8 Output (大震動) |
+| `G` | Tag G IO6 Output (測試用) |
+| `H` | Tag G IO7 Output (測試用) |
+| `I` | Tag G IO8 Output (測試用) |
 | `O` | 所有 IO7 Output |
 | `Q` | 退出程式 |
 

@@ -61,6 +61,7 @@ Last updated: 2026-04-23
 - Alt Tracker 與 HW Extension 共用同一實體裝置時，最多只能安全使用 1 個 output pin。
 - Tag B 需要 IO7 與 IO8 雙輸出，因此採 IO-only 架構。
 - Type 屬性必須在 AntilatencyService 正確設定，否則配對流程會失敗。
+- `Antilatency Support/` 保存提交給官方的 C++ SDK 4.5.0 support ticket、Service Desk 表單欄位輔助文件與最小復現，聚焦同一 physical Socket 上 Alt Tracking cotask + HW Extension cotask + 2 output pins 的衝突，並詢問未來 3 output pins + Alt Tracking 的官方上限與建議架構。
 
 ## Operational Expectations
 
