@@ -1,3 +1,5 @@
+//MANPADS Antilatency Tracking System — C++ 主程式（多場景 + 多 Tracker + HW IO + JSON）
+//最後更新: 2026/04/30
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -5,6 +7,7 @@
 #include <fstream>
 #include <string>
 #include <map>
+#include <exception>
 #include <filesystem>
 
 #include <Antilatency.InterfaceContract.LibraryLoader.h>
@@ -49,15 +52,78 @@ struct HWExtInstance {
     Antilatency::HardwareExtensionInterface::ICotask cotask;
     std::string type;
     std::vector<Antilatency::HardwareExtensionInterface::IInputPin> inputPins;
-    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO6;  // Tag G only (3rd output)
+    Antilatency::HardwareExtensionInterface::IPwmPin pwmPinIOA3;  // Tag G test PWM output
+    int ioa3Level = 0;  // 0=off, 1=small PWM, 2=full output
+    bool ioa3State = false;
+    bool hasPwmIOA3 = false;
+    Antilatency::HardwareExtensionInterface::IAnalogPin analogPinIOA4;  // Tag G test analog input
+    float ioa4Value = 0.0f;  // normalized 0.0-1.0
+    bool hasAnalogIOA4 = false;
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO6;  // legacy (unused for G after IOA4 refactor)
     bool io6State = false;
-    bool hasIO6Output = false;  // true only for Tag G
+    bool hasIO6Output = false;
     Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO7;
     bool io7State = false;
-    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO8;  // Tag B/G (大震動)
+    Antilatency::HardwareExtensionInterface::IOutputPin outputPinIO8;  // Tag B/G
     bool io8State = false;
     bool hasIO8Output = false;  // true for Tag B and G
+    // IOA3 analog input + IOA4 PWM output (Tag G/A)
+    Antilatency::HardwareExtensionInterface::IAnalogPin analogPinIOA3;
+    bool bcuState     = false;
+    bool hoanState    = false;  // 保險
+    bool antennaState = false;  // 天線
+    Antilatency::HardwareExtensionInterface::IPwmPin pwmPinIOA4;
+    int  ioa4Level    = 0;      // 0=off, 1=小震動(55%), 2=大震動(91%)
+    bool hasAnalogIO  = false;  // true for Tag G/A (has IOA3 analog decode)
+    bool hasPwmIOA4   = false;  // true when IOA4 is PWM output (not input)
 };
+
+static char readInputBit(HWExtInstance& hw, size_t index) {
+    if (index >= hw.inputPins.size()) return '0';
+    try {
+        auto pinState = hw.inputPins[index].getState();
+        return (pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
+    } catch (const std::exception&) {
+        return '0';
+    } catch (...) {
+        return '0';
+    }
+}
+
+static void refreshIOA4Value(HWExtInstance& hw) {
+    if (!hw.hasAnalogIOA4) return;
+    try {
+        hw.ioa4Value = hw.analogPinIOA4.getValue();
+    } catch (const std::exception&) {
+        // Keep the last value so monitor output stays alive if one analog read fails.
+    } catch (...) {
+    }
+}
+
+static int decodeAnalogABCLevel(float v) {
+    if (v < 0.164f) return 0; // <0.54V: no press
+    if (v < 0.267f) return 1; // 0.54V..0.88V: A/BCU
+    if (v < 0.379f) return 2; // 0.88V..1.25V: B
+    if (v < 0.473f) return 3; // 1.25V..1.56V: A+B
+    if (v < 0.555f) return 4; // 1.56V..1.83V: C
+    if (v < 0.606f) return 5; // 1.83V..2.00V: A+C
+    if (v < 0.664f) return 6; // 2.00V..2.19V: B+C
+    return 7;                 // >=2.19V: A+B+C
+}
+
+static std::string buildTagGIoBits(HWExtInstance& hw) {
+    std::string ioBits = "00000000";
+    ioBits[0] = readInputBit(hw, 0);              // IO1 input
+    ioBits[1] = readInputBit(hw, 1);              // IO2 input
+    ioBits[2] = static_cast<char>('0' + hw.ioa3Level); // IOA3 PWM: 0=off, 1=small, 2=full
+    refreshIOA4Value(hw);
+    ioBits[3] = static_cast<char>('0' + decodeAnalogABCLevel(hw.ioa4Value)); // IOA4 analog ABC level
+    ioBits[4] = readInputBit(hw, 2);              // IO5 input
+    ioBits[5] = readInputBit(hw, 3);              // IO6 input
+    ioBits[6] = hw.io7State ? '1' : '0';          // IO7 output
+    ioBits[7] = readInputBit(hw, 4);              // IO8 input
+    return ioBits;
+}
 
 // ============================================================
 // Simple JSON parser for scenes.json
@@ -224,6 +290,20 @@ static std::string typeToTag(const std::string& type) {
 }
 
 // ============================================================
+// IOA3 analog voltage decode: 0.0-1.0 normalized (1.0 = 3.3V)
+// Floor decode by specified voltage lower bounds.
+// A/BCU=0.54V, B=0.88V, A+B=1.25V, C=1.56V,
+// A+C=1.83V, B+C=2.00V, A+B+C=2.19V.
+// ============================================================
+static void decodeIOA3(float v, bool& bcu, bool& hoan, bool& antenna) {
+    bcu = hoan = antenna = false;
+    int level = decodeAnalogABCLevel(v);
+    bcu = (level & 1) != 0;
+    hoan = (level & 2) != 0;
+    antenna = (level & 4) != 0;
+}
+
+// ============================================================
 // Named Pipe IO command receiver (--json mode only)
 // Accepts JSON commands: {"io7":"A1"}, {"io8":"B1"}, etc.
 // ============================================================
@@ -370,9 +450,8 @@ static void printUsage(const std::string& progName) {
     std::cout << "  [A]      Toggle IO7 Tag A (後座力)" << std::endl;
     std::cout << "  [B]      Toggle IO7 Tag B (小震動)" << std::endl;
     std::cout << "  [C]      Toggle IO8 Tag B (大震動)" << std::endl;
-    std::cout << "  [G]      Toggle IO6 Tag G (測試用)" << std::endl;
+    std::cout << "  [G]      Cycle IOA3 Tag G: OFF -> PWM small -> FULL" << std::endl;
     std::cout << "  [H]      Toggle IO7 Tag G (測試用)" << std::endl;
-    std::cout << "  [I]      Toggle IO8 Tag G (測試用)" << std::endl;
     std::cout << "  [O]      Toggle IO7 all devices" << std::endl;
     std::cout << "  [Q]      Quit" << std::endl;
 }
@@ -533,7 +612,7 @@ int main(int argc, char* argv[]) {
     };
     const int inputPinCount = 7;
 
-    if (!jsonMode) std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [A] IO7-A, [B] IO7-B, [C] IO8-B, [G] IO6-G, [H] IO7-G, [I] IO8-G, [O] IO7-All, [Q] quit)" << std::endl;
+    if (!jsonMode) std::cout << "Waiting for devices... (Press [L] list scenes, [1]-[9] switch, [A] IO7-A, [B] IO7-B, [C] IO8-B, [G] IOA3-G(off/PWM/full), [H] IO7-G, [O] IO7-All, [Q] quit)" << std::endl;
 
     // ============================================================
     // Main loop
@@ -590,12 +669,13 @@ int main(int argc, char* argv[]) {
                 }
             } else if (key == 'g' || key == 'G') {
                 for (auto& hw : hwExtensions) {
-                    if (hw.type == "G" && hw.hasIO6Output && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
-                        hw.io6State = !hw.io6State;
-                        hw.outputPinIO6.setState(hw.io6State
-                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
-                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        std::cout << "\n>> IO6[G]: " << (hw.io6State ? "ON" : "OFF") << std::endl;
+                    if (hw.type == "G" && hw.hasPwmIOA3 && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
+                        hw.ioa3Level = (hw.ioa3Level + 1) % 3;
+                        hw.ioa3State = hw.ioa3Level != 0;
+                        float duty = hw.ioa3Level == 1 ? 0.55f : hw.ioa3Level == 2 ? 1.0f : 0.0f;
+                        hw.pwmPinIOA3.setDuty(duty);
+                        const char* labels[] = {"OFF", "SMALL PWM (55%)", "FULL (100%)"};
+                        std::cout << "\n>> IOA3[G]: " << labels[hw.ioa3Level] << std::endl;
                         break;
                     }
                 }
@@ -607,17 +687,6 @@ int main(int argc, char* argv[]) {
                             ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
                             : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         std::cout << "\n>> IO7[G]: " << (hw.io7State ? "ON" : "OFF") << std::endl;
-                        break;
-                    }
-                }
-            } else if (key == 'i' || key == 'I') {
-                for (auto& hw : hwExtensions) {
-                    if (hw.type == "G" && hw.hasIO8Output && hw.cotask != nullptr && !hw.cotask.isTaskFinished()) {
-                        hw.io8State = !hw.io8State;
-                        hw.outputPinIO8.setState(hw.io8State
-                            ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
-                            : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        std::cout << "\n>> IO8[G]: " << (hw.io8State ? "ON" : "OFF") << std::endl;
                         break;
                     }
                 }
@@ -730,7 +799,10 @@ int main(int argc, char* argv[]) {
                         if (!ti.type.empty()) std::cout << " [" << ti.type << "]";
                         std::cout << " connected!" << std::endl;
                     } else {
-                        std::cerr << "[JSON] Tracker #" << ti.id << " connected" << std::endl;
+                        std::cerr << "[JSON] Tracker #" << ti.id;
+                        if (!ti.type.empty()) std::cerr << " [" << ti.type << "]";
+                        if (!ti.number.empty()) std::cerr << " Number:" << ti.number;
+                        std::cerr << " connected" << std::endl;
                     }
                 }
             }
@@ -772,7 +844,8 @@ int main(int argc, char* argv[]) {
 
                     // Per-type pin configuration:
                     // Tag B (IO-only): 6 input (IO1-IO6) + IO7 + IO8 output = 8 pins
-                    // Tag G (test): 5 input (IO1-IO5) + IO6 + IO7 + IO8 output = 8 pins (3 outputs)
+                    // Tag G (diagnostic): IOA3 + IO7 output, IOA4 analog input,
+                    // all other pins as plain inputs.
                     // Others (A/C/D): 7 input (IO1-IO6, IO8) + IO7 output = 8 pins
                     if (hw.type == "B") {
                         for (int i = 0; i < 6; i++) {
@@ -788,24 +861,30 @@ int main(int argc, char* argv[]) {
                         hw.io8State = false;
                         hw.hasIO8Output = true;
                     } else if (hw.type == "G") {
-                        // 5 input pins: IO1, IO2, IOA3, IOA4, IO5
-                        for (int i = 0; i < 5; i++) {
-                            hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
-                        }
-                        hw.outputPinIO6 = cotask.createOutputPin(
-                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO6,
-                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        hw.io6State = false;
-                        hw.hasIO6Output = true;
+                        // Digital inputs: IO1, IO2, IO5, IO6, IO8.
+                        hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO1));
+                        hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO2));
+                        hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO5));
+                        hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO6));
+                        hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO8));
+                        // Analog input: IOA4, shown live in monitor.
+                        hw.analogPinIOA4 = cotask.createAnalogPin(
+                            Antilatency::HardwareExtensionInterface::Interop::Pins::IOA4, 10);
+                        hw.hasAnalogIOA4 = true;
+                        // PWM output: IOA3, three levels controlled by [G].
+                        hw.pwmPinIOA3 = cotask.createPwmPin(
+                            Antilatency::HardwareExtensionInterface::Interop::Pins::IOA3, 1000, 0.0f);
+                        hw.ioa3Level = 0;
+                        hw.ioa3State = false;
+                        hw.hasPwmIOA3 = true;
+                        // Digital output: IO7.
                         hw.outputPinIO7 = cotask.createOutputPin(
                             Antilatency::HardwareExtensionInterface::Interop::Pins::IO7,
                             Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         hw.io7State = false;
-                        hw.outputPinIO8 = cotask.createOutputPin(
-                            Antilatency::HardwareExtensionInterface::Interop::Pins::IO8,
-                            Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
-                        hw.io8State = false;
-                        hw.hasIO8Output = true;
+                        hw.hasIO8Output = false;
+                        hw.hasAnalogIO = false;
+                        hw.hasPwmIOA4 = false;
                     } else {
                         for (int i = 0; i < inputPinCount; i++) {
                             hw.inputPins.push_back(cotask.createInputPin(inputPinDefs[i]));
@@ -890,18 +969,24 @@ int main(int argc, char* argv[]) {
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
                         oss << " IO[" << tag << "]:";
-                        int inputLoopCount = hw.hasIO6Output ? 5 : 6;
-                        for (int i = 0; i < inputLoopCount; i++) {
-                            auto pinState = hw.inputPins[i].getState();
-                            oss << ((pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
-                        }
-                        oss << (hw.hasIO6Output ? (hw.io6State ? "1" : "0") : "");
-                        oss << (hw.io7State ? "1" : "0");
-                        if (hw.hasIO8Output) {
-                            oss << (hw.io8State ? "1" : "0");
+                        if (hw.type == "G" && hw.hasAnalogIOA4) {
+                            std::string ioBits = buildTagGIoBits(hw);
+                            oss << ioBits
+                                << " A4:" << std::setprecision(3) << hw.ioa4Value
+                                << "(" << std::setprecision(2) << (hw.ioa4Value * 3.3f) << "V)"
+                                << std::setprecision(4);
                         } else {
-                            auto pin8State = hw.inputPins[6].getState();  // 7th input pin = IO8
-                            oss << ((pin8State == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? "1" : "0");
+                            int inputLoopCount = hw.hasIO6Output ? 5 : 6;
+                            for (int i = 0; i < inputLoopCount; i++) {
+                                oss << readInputBit(hw, static_cast<size_t>(i));
+                            }
+                            oss << (hw.hasIO6Output ? (hw.io6State ? "1" : "0") : "");
+                            oss << (hw.io7State ? "1" : "0");
+                            if (hw.hasIO8Output) {
+                                oss << (hw.io8State ? "1" : "0");
+                            } else {
+                                oss << readInputBit(hw, 6);  // 7th input pin = IO8
+                            }
                         }
                     }
                     oss << "  ";
@@ -951,23 +1036,44 @@ int main(int argc, char* argv[]) {
 
                     std::string tag = typeToTag(t.type);
 
-                    // Build per-tracker IO 8-bit string: IO1,IO2,IOA3,IOA4,IO5,IO6,IO7(out),IO8
+                    // Build per-tracker IO string
+                    // Tag G/A (hasAnalogIO): 10-bit IO1,IO2,BCU,保險,天線,IO5,IO6,IO7*,IO8*,IOA4(0/1/2)
+                    // Others:                 8-bit  IO1,IO2,IOA3,IOA4,IO5,IO6,IO7*,IO8
                     std::string ioBits = "00000000";
                     auto hwIt = hwByType.find(t.type);
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
-                        int inputLoopCount = hw.hasIO6Output ? 5 : 6;
-                        for (int i = 0; i < inputLoopCount; i++) {
-                            auto pinState = hw.inputPins[i].getState();
-                            ioBits[i] = (pinState == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
-                        }
-                        ioBits[5] = hw.hasIO6Output ? (hw.io6State ? '1' : '0') : ioBits[5];
-                        ioBits[6] = hw.io7State ? '1' : '0';
-                        if (hw.hasIO8Output) {
-                            ioBits[7] = hw.io8State ? '1' : '0';
+                        using PS = Antilatency::HardwareExtensionInterface::Interop::PinState;
+                        if (hw.type == "G" && hw.hasAnalogIOA4) {
+                            ioBits = buildTagGIoBits(hw);
+                        } else if (hw.hasAnalogIO) {
+                            // 10-bit path (Tag G/A)
+                            ioBits = "0000000000";
+                            ioBits[0] = (hw.inputPins[0].getState() == PS::Low) ? '1' : '0'; // IO1
+                            ioBits[1] = (hw.inputPins[1].getState() == PS::Low) ? '1' : '0'; // IO2
+                            float v = hw.analogPinIOA3.getValue();
+                            decodeIOA3(v, hw.bcuState, hw.hoanState, hw.antennaState);
+                            ioBits[2] = hw.bcuState     ? '1' : '0'; // BCU
+                            ioBits[3] = hw.hoanState    ? '1' : '0'; // 保險
+                            ioBits[4] = hw.antennaState ? '1' : '0'; // 天線
+                            ioBits[5] = (hw.inputPins[2].getState() == PS::Low) ? '1' : '0'; // IO5
+                            ioBits[6] = (hw.inputPins[3].getState() == PS::Low) ? '1' : '0'; // IO6
+                            ioBits[7] = hw.io7State ? '1' : '0';     // IO7 out
+                            ioBits[8] = hw.io8State ? '1' : '0';     // IO8 out
+                            ioBits[9] = '0' + hw.ioa4Level;          // IOA4: '0'/'1'/'2'
                         } else {
-                            auto pin8State = hw.inputPins[6].getState();  // 7th input pin = IO8
-                            ioBits[7] = (pin8State == Antilatency::HardwareExtensionInterface::Interop::PinState::Low) ? '1' : '0';
+                            // 8-bit path (Tag A, C, others with HW Extension)
+                            int inputLoopCount = hw.hasIO6Output ? 5 : 6;
+                            for (int i = 0; i < inputLoopCount; i++) {
+                                ioBits[i] = readInputBit(hw, static_cast<size_t>(i));
+                            }
+                            ioBits[5] = hw.hasIO6Output ? (hw.io6State ? '1' : '0') : ioBits[5];
+                            ioBits[6] = hw.io7State ? '1' : '0';
+                            if (hw.hasIO8Output) {
+                                ioBits[7] = hw.io8State ? '1' : '0';
+                            } else {
+                                ioBits[7] = readInputBit(hw, 6);
+                            }
                         }
                     }
 
@@ -1035,6 +1141,20 @@ int main(int argc, char* argv[]) {
                 }
                 js << "]";
                 js << ",\"io7out\":" << (firstHW.io7State ? "true" : "false");
+            }
+            js << "}";
+            js << ",\"analog\":{";
+            bool firstAnalog = true;
+            for (auto& hw : hwExtensions) {
+                if (hw.cotask == nullptr || hw.cotask.isTaskFinished()) continue;
+                if (!hw.hasAnalogIOA4) continue;
+                refreshIOA4Value(hw);
+                if (!firstAnalog) js << ",";
+                firstAnalog = false;
+                js << "\"" << hw.type << "\":{"
+                   << "\"ioa4\":" << hw.ioa4Value
+                   << ",\"ioa4v\":" << (hw.ioa4Value * 3.3f)
+                   << "}";
             }
             js << "}";
             js << "}";

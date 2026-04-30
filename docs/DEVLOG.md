@@ -1879,3 +1879,274 @@ if (parentA == parentH) { /* 同一物理裝置 */ }
 - 門檻：< 0.2 = 無訊號，0.2–0.7 = 1.5V 段，> 0.7 = 3.3V 段
 - **未決定**：IO 字串三種狀態表示方式（1bit / 2bit / 另加 analog 欄位）
 - 確定後再實作
+
+---
+
+## Phase 17：IOA3/IOA4 類比重設計 — 硬體會議決策與診斷實驗 (2026-04-30)
+
+### 17.1 硬體會議決策
+
+**IOA3：電阻分壓梯讀取三顆按鈕**
+
+設計方案：三顆按鈕（BCU、保險、天線）各自並聯接地電阻，組成電壓分壓梯，IOA3 讀取組合電壓，解碼為 3 個獨立 bit。
+
+| 組合 | 電壓 (V) | 歸一化 (÷3.3V) |
+|------|---------|--------------|
+| 無    | 0.00   | 0.000        |
+| BCU  | 0.54   | 0.164        |
+| 保險  | 0.88   | 0.267        |
+| BCU+保險 | 1.25 | 0.379      |
+| 天線  | 1.56   | 0.473        |
+| BCU+天線 | 1.83 | 0.555      |
+| 保險+天線 | 2.00 | 0.606     |
+| 全部  | 2.19   | 0.664        |
+
+電壓誤差容許：±6%。門檻取相鄰電壓中點：
+
+```cpp
+static void decodeIOA3(float v, bool& bcu, bool& hoan, bool& antenna) {
+    bcu = hoan = antenna = false;
+    if (v < 0.082f) return;                              // 0V — 未按
+    if (v < 0.216f) { bcu = true; return; }             // 0.164 → BCU
+    if (v < 0.323f) { hoan = true; return; }            // 0.267 → 保險
+    if (v < 0.426f) { bcu = hoan = true; return; }      // 0.379 → BCU+保險
+    if (v < 0.514f) { antenna = true; return; }         // 0.473 → 天線
+    if (v < 0.580f) { bcu = antenna = true; return; }   // 0.555 → BCU+天線
+    if (v < 0.635f) { hoan = antenna = true; return; }  // 0.606 → 保險+天線
+    bcu = hoan = antenna = true;                        // 0.664 → 全部
+}
+```
+
+**IOA4：PWM 輸出至 Pico2W 控制震動馬達**
+
+- IOA4 從數位輸入改為 PWM 輸出，接 Pico2W 的 GPIO ADC
+- Pico2W 依電壓解碼震動等級，驅動震動馬達（馬達使用外部獨立電源）
+- 兩段輸出：duty=55% ≈ 1.8V（小震動），duty=91% ≈ 3.0V（大震動）
+- C++ 鍵盤 `[J]` 鍵循環：off → 小震動 → 大震動 → off
+
+**IO 字串擴展：8-bit → 10-bit**
+
+```
+位置  0  1   2    3    4    5   6    7     8     9
+腳位 IO1 IO2 BCU 保險 天線 IO5 IO6 IO7* IO8* IOA4*
+```
+
+- BCU / 保險 / 天線 各佔一個 bit（從 IOA3 類比值解碼）
+- IOA4* 位置存 `'0'`/`'1'`/`'2'`（off/小震動/大震動），非傳統 H/L
+- 8-bit 路徑：其他 Tag（A/B/C/D）不變
+
+**IO6 定案：維持 Input**（確認不是 Output）
+
+**實驗順序：先 Tag G 測試，再套用到 Tag A**
+
+---
+
+### 17.2 程式碼架構修改（2026-04-30）
+
+**`src/TrackingMinimalDemoCpp.cpp`**
+
+`HWExtInstance` struct 新增欄位：
+```cpp
+Antilatency::HardwareExtensionInterface::IAnalogPin analogPinIOA3;
+bool bcuState     = false;
+bool hoanState    = false;   // 保險
+bool antennaState = false;   // 天線
+Antilatency::HardwareExtensionInterface::IPwmPin pwmPinIOA4;
+int  ioa4Level    = 0;       // 0=off, 1=小震動(55%), 2=大震動(91%)
+bool hasAnalogIO  = false;   // true for Tag G/A
+bool hasPwmIOA4   = false;   // true when IOA4 is PWM output
+```
+
+IO string 建構邏輯：
+```cpp
+if (hw.hasAnalogIO) {
+    ioBits = "0000000000";  // 10-bit
+    ioBits[0] = IO1;  ioBits[1] = IO2;
+    float v = hw.analogPinIOA3.getValue();
+    decodeIOA3(v, hw.bcuState, hw.hoanState, hw.antennaState);
+    ioBits[2] = bcu; ioBits[3] = hoan; ioBits[4] = antenna;
+    ioBits[5] = IO5; ioBits[6] = IO6;
+    ioBits[7] = IO7(out); ioBits[8] = IO8(out);
+    ioBits[9] = '0' + hw.ioa4Level;
+} else {
+    // 原有 8-bit 路徑不變
+}
+```
+
+鍵盤變更：
+- 移除 `[G]` 鍵（原 IO6 output handler，IO6 改回 Input）
+- 新增 `[J]` 鍵：`hw.ioa4Level = (hw.ioa4Level + 1) % 3`，呼叫 `pwmPinIOA4.setDuty()`
+- `[H]` = Tag G IO7，`[I]` = Tag G IO8 保留不動
+
+> 以上鍵盤與 PWM 方案已被 17.6 的新 Tag G 診斷配置取代；目前使用 `[G]` 控制 IOA3 output、`[H]` 控制 IO7 output，IOA4 改為 analog input 顯示即時電壓。
+
+**`faymantu/monitor.py`**
+
+- `TAG_INFO` 加入 `"G": ("G", "測試裝置")`
+- `IO_LABELS` → `IO_LABELS_8`（原 8-bit）；新增 `IO_LABELS_10`
+- `format_io_bar()` 加入 `labels` 參數，依 io 字串長度自動選擇；IOA4* 顯示三態（OFF/小震動/大震動）
+- 底部說明更新：移除 `[G] G-IO6`，加入 `[J] G-IOA4振動(off/小/大)`
+
+> 以上 monitor footer 已被 17.6 取代；目前 footer 顯示 `[G] G-IOA3`、`[H] G-IO7`，並額外顯示 `IOA4 Voltage`。
+
+---
+
+### 17.3 診斷實驗：createAnalogPin / createPwmPin 與 Alt Tracking 衝突
+
+**問題描述**：Diag 1 發現同一裝置上同時使用 `createAnalogPin(IOA3)` + `createPwmPin(IOA4)` 後，Alt Tracker cotask 會在啟動後立即 finish（`isTaskFinished()`=true），卻無任何例外拋出（沉默失敗）。
+
+**三段診斷測試矩陣**：
+
+| 診斷 | Tag G IOA3 | Tag G IOA4 | IO7 | IO8 | Alt Tracker | 結果 |
+|------|-----------|-----------|-----|-----|------------|------|
+| Diag 1 | `createAnalogPin` | `createPwmPin` | output | output | ✅ 啟動 | ❌ 立即 finish |
+| Diag 2 | `createInputPin` | `createInputPin` | output | output | ✅ 啟動 | ✅ **正常運作** |
+| Diag 3 | `createAnalogPin` | `createInputPin` | output | output | ✅ 啟動 | **待測試** |
+| Diag 4 | `createOutputPin` | `createAnalogPin` | IO7 output | input | ✅ 啟動 | **本版待實機驗證** |
+
+**診斷過程**：
+1. Diag 1：original 設計，Alt fail → 兩個嫌疑：analog 或 PWM
+2. Diag 2：全改 plain input → Alt 正常，確認不是「output 太多」造成
+3. Diag 3：只保留 analog，移除 PWM → 用於隔離「哪個 pin type 是根因」
+
+**Diag 3 的 code 在 session 討論後未存入檔案**（context 壓縮問題），目前實際跑的仍是 Diag 2。需要手動加回 `createAnalogPin` 後重新測試。
+
+**根因假設**：nRF52840 的 SAADC（`createAnalogPin`）或 PWM 硬體 Timer（`createPwmPin`）與 Alt Tracker 韌體（內部 IMU/Camera DMA）共用硬體資源，導致 cotask 啟動後無法維持。由於 Unity SDK 也能使用 analog pins，推測可能是特定初始化順序或 refresh rate 設定造成衝突，非根本性限制。
+
+---
+
+### 17.4 目前狀態（2026-04-30）
+
+- 目前跑 Diag 2（`hasAnalogIO=false`，8-bit io string）
+- [G] 在 monitor 正常顯示，Alt S:1（無完整追蹤環境，正常）
+- IO6=H：Tag G 的 IO6 腳位為 High，原因是硬體實際接線狀態（正常現象）
+- 所有 struct / 10-bit / monitor 程式碼結構已就位，但 Tag G 初始化仍是 Diag 2 模式
+
+---
+
+### 17.5 待解決問題
+
+| 問題 | 說明 | 優先級 |
+|------|------|--------|
+| Diag 4 實機測試 | Tag G 使用 IOA3+IO7 output、IOA4 analog input，確認 Alt 是否仍正常 | 🔴 最高 |
+| IOA4 即時電壓驗證 | monitor 顯示 `analog.G.ioa4/ioa4v` 是否跟萬用表接近 | 🔴 最高 |
+| IOA4 PWM 方案確認 | 目前暫停 PWM；若仍需震動分段輸出，另開替代方案 | 🟡 待定 |
+| PWM 替代方案（if needed） | 選項：(A) 換 IO-only Tag G 掛 PWM；(B) 純數位 output + Pico2W 側做閾值 | 🟡 待定 |
+| Global IO 10-bit 顯示 | 全域 io 物件仍用舊 8-bit 格式；Tag G 沒有全域 io | 🟢 低 |
+| Tag A 套用 | Diag 全部驗證完後才套用 IOA3/IOA4 到正式 Tag A | 🟢 最後 |
+
+---
+
+### 17.6 Tag G 新診斷配置：IOA3 + IO7 output，IOA4 analog input（2026-04-30）
+
+使用者重新定義 Tag G 測試方向：
+
+- Output 只保留 **IOA3** 與 **IO7**
+- **IOA4 改為 analog input**，monitor 需顯示即時電壓
+- 其他腳位全部維持 input：IO1、IO2、IO5、IO6、IO8
+
+**C++ 變更**
+
+`HWExtInstance` 新增欄位：
+
+```cpp
+Antilatency::HardwareExtensionInterface::IOutputPin outputPinIOA3;
+bool ioa3State = false;
+bool hasIOA3Output = false;
+Antilatency::HardwareExtensionInterface::IAnalogPin analogPinIOA4;
+float ioa4Value = 0.0f;      // normalized 0.0-1.0
+bool hasAnalogIOA4 = false;
+```
+
+Tag G 初始化改為：
+
+| Pin | 方向 | 用途 |
+|-----|------|------|
+| IO1 | Input | 測試輸入 |
+| IO2 | Input | 測試輸入 |
+| IOA3 | Output | 測試輸出，鍵盤 `[G]` 切換 |
+| IOA4 | Analog Input | 即時電壓輸入，monitor 顯示 normalized value 與 V |
+| IO5 | Input | 測試輸入 |
+| IO6 | Input | 測試輸入 |
+| IO7 | Output | 測試輸出，鍵盤 `[H]` 切換 |
+| IO8 | Input | 測試輸入 |
+
+Tag G 的 `io` 字串維持 8-bit，不走 10-bit：
+
+```text
+位置  0   1    2      3       4   5   6     7
+腳位 IO1 IO2 IOA3* IOA4(A) IO5 IO6 IO7* IO8
+```
+
+- `IOA3*`：output 狀態
+- `IOA4(A)`：analog input 是否大於 0.05 normalized，只作為 active indicator
+- 真正電壓另由 JSON top-level `analog` 欄位回報
+
+新增 JSON 欄位：
+
+```json
+"analog": {
+  "G": {
+    "ioa4": 0.473,
+    "ioa4v": 1.56
+  }
+}
+```
+
+`faymantu/monitor.py` 變更：
+
+- 新增 `IO_LABELS_G = ["IO1", "IO2", "IOA3*", "IOA4(A)", "IO5", "IO6", "IO7*", "IO8"]`
+- Tag G 使用專屬 8-bit label 顯示
+- 讀取 top-level `analog.G.ioa4` / `analog.G.ioa4v`
+- 在 tracker 區塊顯示：
+
+```text
+IOA4 Voltage: 0.473 (1.56V)
+```
+
+RunMonitor startup exit hotfix (2026-04-30):
+- Symptom: `scripts/RunMonitor.bat` printed Extension/Tracker connected messages, then exited to `Press any key to continue...`.
+- Root cause: the legacy console `oss` line was still built before JSON output and could read Tag G `inputPins[5]` / `inputPins[6]`, but current Tag G only has five digital inputs.
+- Fix: added guarded Tag G IO mapping for `IO1, IO2, IOA3(out), IOA4(analog active), IO5, IO6, IO7(out), IO8`, and reused it in console and JSON output.
+- Validation: `cmake --build build --config Release` passed; only existing C4819 source encoding warnings remain.
+
+IOA3 PWM two-level output update (2026-04-30):
+- Requirement: IOA3 needs two active output levels, one smaller PWM level and one full output level.
+- Implementation: Tag G IOA3 now uses `createPwmPin(IOA3, 1000, 0.0f)` instead of digital `createOutputPin`.
+- Keyboard `[G]` cycles `OFF -> small PWM -> full output -> OFF`.
+- Duty values: small PWM = 55%, full output = 100%.
+- Tag G `io` position 2 now uses `0/1/2` for IOA3 level instead of binary H/L.
+- `monitor.py` displays IOA3 as `OFF`, `小PWM`, or `全輸出`.
+- Build validation: `cmake --build build --config Release` passed; only existing C4819 source encoding warnings remain.
+
+IOA3 analog ladder floor decode update (2026-04-30):
+- Requirement: IOA3 A/B/C voltage ladder must decode by floor threshold, not by midpoint threshold.
+- Examples: 0.62V decodes as A/BCU; 1.30V decodes as A+B.
+- Voltage ranges:
+  - `<0.54V` = none
+  - `0.54V <= v < 0.88V` = A/BCU
+  - `0.88V <= v < 1.25V` = B/保險
+  - `1.25V <= v < 1.56V` = A+B
+  - `1.56V <= v < 1.83V` = C/天線
+  - `1.83V <= v < 2.00V` = A+C
+  - `2.00V <= v < 2.19V` = B+C
+  - `>=2.19V` = A+B+C
+- C++ normalized thresholds are now `0.164, 0.267, 0.379, 0.473, 0.555, 0.606, 0.664`.
+
+IOA4 compact analog decode display (2026-04-30):
+- Requirement: IOA4 voltage has only seven active combinations, so keep the 8-character `io` string and encode IOA4 in one character.
+- Tag G `io` position 3 now uses `0-7`:
+  `0=none, 1=A, 2=B, 3=A+B, 4=C, 5=A+C, 6=B+C, 7=A+B+C`.
+- This avoids changing the IO string length while still exposing the decoded analog state.
+- `monitor.py` displays IOA4 as `0/無`, `1/A`, `2/B`, `3/A+B`, `4/C`, `5/A+C`, `6/B+C`, or `7/A+B+C`.
+- C++ uses the shared `decodeAnalogABCLevel()` helper for both IOA4 compact display and IOA3 A/B/C bit decoding.
+
+**編譯結果**
+
+`cmake --build build --config Release` 成功，僅保留既有 C4819 字碼頁警告。
+
+**待實機驗證**
+
+- Tag G 是否仍能穩定出現在 monitor
+- IOA4 電壓是否即時更新
+- IOA3 output `[G]` 與 IO7 output `[H]` 是否正常切換

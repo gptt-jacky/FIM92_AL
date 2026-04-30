@@ -1,9 +1,34 @@
 # MANPADS Antilatency Tracking System
 
+## Tag G Monitor Hotfix (2026-04-30)
+
+- Current Tag G test layout: IOA3 is a three-level PWM output, IO7 is digital output, IOA4 is analog input, and IO1, IO2, IO5, IO6, IO8 are digital inputs.
+- `[G]` cycles IOA3 through `off -> small PWM (55%) -> full output (100%)`.
+- Tag G `trackers[].io` remains 8 characters for this diagnostic layout: `IO1, IO2, IOA3(0/1/2), IOA4(0-7), IO5, IO6, IO7(out), IO8`.
+- IOA4 uses one character for the analog A/B/C decode: `0=none, 1=A, 2=B, 3=A+B, 4=C, 5=A+C, 6=B+C, 7=A+B+C`.
+- `analog.G.ioa4` is the normalized IOA4 value, and `analog.G.ioa4v` is the calculated voltage.
+- `scripts/RunMonitor.bat` startup-exit issue was caused by the legacy console IO path reading old Tag G input indices. The C++ output path now uses a guarded Tag G mapping.
+
+## IOA3 Analog Decode Rule (2026-04-30)
+
+When IOA3 is used as the A/B/C button voltage ladder, decode by floor threshold, not by midpoint. Example: 0.62V decodes as A/BCU; 1.30V decodes as A+B.
+
+| Voltage range | Decode |
+|---|---|
+| `< 0.54V` | none |
+| `0.54V <= v < 0.88V` | A / BCU |
+| `0.88V <= v < 1.25V` | B / 保險 |
+| `1.25V <= v < 1.56V` | A+B |
+| `1.56V <= v < 1.83V` | C / 天線 |
+| `1.83V <= v < 2.00V` | A+C |
+| `2.00V <= v < 2.19V` | B+C |
+| `>= 2.19V` | A+B+C |
+
 ## Antilatency Support Package (2026-04-29)
 
 - `Antilatency Support/` 包含 SDK 4.5.0 支援票（Alt Tracking + HW Extension 多 output 限制詢問）與最小復現程式。
 - 目前 Tag G 實測（Alt + 3 output）可正常運作，支援票暫不送出，待 IOA3/IOA4 類比兩段設計完成後再評估。
+- 2026-04-30 新增 IOA3/IOA4 重設計診斷紀錄：Tag G 目前測試配置為 IOA3+IO7 output、IOA4 analog input 即時電壓顯示，完整紀錄見 [DEVLOG.md](docs/DEVLOG.md#phase-17ioa3ioa4-類比重設計--硬體會議決策與診斷實驗-2026-04-30)。
 
 Antilatency Alt 6-DOF Tracking + HW IO C++ 應用程式，搭配 Web 3D 即時視覺化介面。
 
@@ -204,7 +229,7 @@ C++ 輸出的完整 JSON（RunWithPipe / RunTracking 模式）：
 | `trackers[].px/py/pz` | float | **位置**，單位：公尺 (m)，右手座標系，Y 軸朝上 |
 | `trackers[].rx/ry/rz/rw` | float | **旋轉**，四元數 (Quaternion)，格式 (x, y, z, w) |
 | `trackers[].stability` | int | 追蹤穩定度（見下表） |
-| `trackers[].io` | string | 8 字元 IO 狀態（per-tracker，透過 Type 配對 HW Extension Module） |
+| `trackers[].io` | string | IO 狀態字串。正式裝置目前為 8 字元；Tag G/A 類比實驗預留 10 字元格式（見下方 IOA3/IOA4 診斷紀錄） |
 | `io.connected` | bool | Extension Module 是否已連接 |
 | `io.type` | string | 第一組 Extension Module 對應的 Type 屬性（例如 `"A"`） |
 | `io.inputs[]` | int[7] | 7 路 Input 狀態 (0 或 1)，順序：IO1, IO2, IOA3, IOA4, IO5, IO6, IO8 |
@@ -235,6 +260,28 @@ Input 使用 **Active Low**：Low（接地）= 1（觸發），High（懸空）=
 | 5 | IO6 | Input | Low=1, High=0 |
 | 6 | IO8 | Input | Low=1, High=0 |
 | - | IO7 | **Output** | `io7out` 欄位控制 |
+
+### IOA3 / IOA4 類比重設計診斷（2026-04-30）
+
+目前此設計只在 **Tag G 測試裝置** 上驗證，尚未套用到正式 Tag A。
+
+最新 Tag G 診斷配置：
+
+- Output：IOA3、IO7
+- Analog Input：IOA4，monitor 顯示 normalized value 與換算電壓
+- Digital Input：IO1、IO2、IO5、IO6、IO8
+- IOA3 / IO7 可透過鍵盤 `[G]` / `[H]` 切換
+- `trackers[].io` 目前維持 8-bit：`IO1, IO2, IOA3*, IOA4(A), IO5, IO6, IO7*, IO8`
+
+歷史診斷結果：
+
+| 診斷 | IOA3 | IOA4 | IO7/IO8 | Alt Tracker 結果 |
+|------|------|------|---------|------------------|
+| Diag 1 | `createAnalogPin` | `createPwmPin` | output | 啟動後立即 finish |
+| Diag 2 | `createInputPin` | `createInputPin` | output | 正常顯示 Tag G |
+| Diag 3 | `createOutputPin` | `createAnalogPin` | IO7 output / IO8 input | 本版待實機驗證 |
+
+本版已編譯通過，待實機確認 Tag G 的 Alt 是否穩定，以及 IOA4 電壓是否在 monitor 即時更新。
 
 ### WebSocket 反向控制
 
@@ -631,9 +678,8 @@ cmake -B build && cmake --build build
 | `A` | Tag A IO7 Output (保險開關) |
 | `B` | Tag B IO7 Output (小震動) |
 | `C` | Tag B IO8 Output (大震動) |
-| `G` | Tag G IO6 Output (測試用) |
+| `G` | Tag G IOA3 Output (測試用) |
 | `H` | Tag G IO7 Output (測試用) |
-| `I` | Tag G IO8 Output (測試用) |
 | `O` | 所有 IO7 Output |
 | `Q` | 退出程式 |
 
