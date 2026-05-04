@@ -1,5 +1,5 @@
 //MANPADS Antilatency Tracking System — C++ 主程式（多場景 + 多 Tracker + HW IO + JSON）
-//最後更新: 2026/04/30
+//最後更新: 2026/05/04
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -101,14 +101,14 @@ static void refreshIOA4Value(HWExtInstance& hw) {
 }
 
 static int decodeAnalogABCLevel(float v) {
-    if (v < 0.164f) return 0; // <0.54V: no press
-    if (v < 0.267f) return 1; // 0.54V..0.88V: A/BCU
-    if (v < 0.379f) return 2; // 0.88V..1.25V: B
-    if (v < 0.473f) return 3; // 1.25V..1.56V: A+B
-    if (v < 0.555f) return 4; // 1.56V..1.83V: C
-    if (v < 0.606f) return 5; // 1.83V..2.00V: A+C
-    if (v < 0.664f) return 6; // 2.00V..2.19V: B+C
-    return 7;                 // >=2.19V: A+B+C
+    if (v < 0.54f)  return 0; // 0V: no press
+    if (v < 0.88f)  return 1; // 0.54..0.88: A/BCU
+    if (v < 1.25f)  return 2; // 0.88..1.25: B/保險
+    if (v < 1.56f)  return 3; // 1.25..1.56: A+B
+    if (v < 1.83f)  return 4; // 1.56..1.83: C/天線
+    if (v < 2.00f)  return 5; // 1.83..2.00: A+C
+    if (v < 2.19f)  return 6; // 2.00..2.19: B+C
+    return 7;                  // >=2.19: A+B+C
 }
 
 static std::string buildTagGIoBits(HWExtInstance& hw) {

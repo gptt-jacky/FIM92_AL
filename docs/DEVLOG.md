@@ -2150,3 +2150,49 @@ IOA4 compact analog decode display (2026-04-30):
 - Tag G 是否仍能穩定出現在 monitor
 - IOA4 電壓是否即時更新
 - IOA3 output `[G]` 與 IO7 output `[H]` 是否正常切換
+
+---
+
+## Phase 18：IOA4 Decode 門檻校正 + Monitor 顯示簡化 (2026-05-04)
+
+### 18.1 關鍵發現：SDK analogPin.getValue() 回傳原始電壓
+
+實機測試中發現 `analog.G.ioa4` 顯示 `1.326`（大於 1.0），確認 Antilatency SDK `analogPin.getValue()` **直接回傳電壓值（0–3.3V 範圍），而非歸一化 0.0–1.0**。先前假設是歸一化值（因此門檻 ÷3.3），造成 decode 完全失準。
+
+### 18.2 decodeAnalogABCLevel 門檻值校正
+
+| 組合 | 舊門檻（錯誤，÷3.3） | 新門檻（實際讀值） |
+|------|---------------------|-----------------|
+| none | < 0.164f | < 0.54f |
+| A/BCU | < 0.267f | < 0.88f |
+| B/保險 | < 0.379f | < 1.25f |
+| A+B | < 0.473f | < 1.56f |
+| C/天線 | < 0.555f | < 1.83f |
+| A+C | < 0.606f | < 2.00f |
+| B+C | < 0.664f | < 2.19f |
+| A+B+C | >= 0.664f | >= 2.19f |
+
+Floor threshold 規則：一律向下取，0.62 → A（>=0.54, <0.88），1.30 → A+B（>=1.25, <1.56）。實機驗證無按鈕讀值為 0，各組合讀值與門檻表完全吻合。
+
+### 18.3 Monitor 顯示簡化
+
+`IOA4 Voltage: 1.326 (4.37V)` → `IOA4: 1.326`
+
+SDK 已回傳電壓，不需要再乘 3.3 換算；移除 `volts` 計算與括號內 V 顯示。
+
+### 18.4 實機驗證結果
+
+| 項目 | 結果 |
+|------|------|
+| Tag G 穩定出現在 monitor | ✅ 正常 |
+| IOA4 各按鈕組合 decode 正確 | ✅ 驗證通過 |
+| IOA3 PWM `[G]` 切換 | ✅ 正常 |
+| IO7 `[H]` 切換 | ✅ 正常 |
+| 所有 Input（IO1/IO2/IO5/IO6/IO8） | ✅ 正常（IO8 曾出現無訊號，排查為線材損壞，更換後恢復） |
+
+### 18.5 修改檔案
+
+| 檔案 | 變更 |
+|------|------|
+| `src/TrackingMinimalDemoCpp.cpp` | `decodeAnalogABCLevel` 門檻值改為實際 SDK 讀值 |
+| `faymantu/monitor.py` | 移除 IOA4 電壓換算顯示（2 處） |

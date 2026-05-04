@@ -4,7 +4,7 @@ MANPADS Console Monitor — 原地刷新顯示所有 Tracker + IO 狀態
 
 Usage: TrackingMinimalDemo.exe --json scenes.json | python monitor.py
 """
-# 最後更新: 2026/04/30
+# 最後更新: 2026/05/04
 import sys
 import os
 import json
@@ -145,8 +145,7 @@ def render(data, frame_count, fps):
             analog_info = analog.get(tag, {})
             if "ioa4" in analog_info:
                 norm = analog_info.get("ioa4", 0.0)
-                volts = analog_info.get("ioa4v", norm * 3.3)
-                lines.append(f"      IOA4 Voltage: {YELLOW}{norm:.3f}{RESET} ({YELLOW}{volts:.2f}V{RESET})")
+                lines.append(f"      IOA4: {YELLOW}{norm:.3f}{RESET}")
 
     # ---- Global IO summary ----
     lines.append("")
@@ -167,8 +166,7 @@ def render(data, frame_count, fps):
     if analog:
         for tag, values in analog.items():
             norm = values.get("ioa4", 0.0)
-            volts = values.get("ioa4v", norm * 3.3)
-            lines.append(f"  Analog [{tag}]: IOA4={norm:.3f} ({volts:.2f}V)")
+            lines.append(f"  Analog [{tag}]: IOA4={norm:.3f}")
 
     hw_count = sum(1 for t in trackers if t.get("io", "00000000") != "00000000")
     total = len(trackers)

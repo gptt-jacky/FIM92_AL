@@ -6,8 +6,14 @@
 - `[G]` cycles IOA3 through `off -> small PWM (55%) -> full output (100%)`.
 - Tag G `trackers[].io` remains 8 characters for this diagnostic layout: `IO1, IO2, IOA3(0/1/2), IOA4(0-7), IO5, IO6, IO7(out), IO8`.
 - IOA4 uses one character for the analog A/B/C decode: `0=none, 1=A, 2=B, 3=A+B, 4=C, 5=A+C, 6=B+C, 7=A+B+C`.
-- `analog.G.ioa4` is the normalized IOA4 value, and `analog.G.ioa4v` is the calculated voltage.
+- `analog.G.ioa4` is the raw SDK analog reading (voltage, not normalized). Monitor displays it directly without conversion.
 - `scripts/RunMonitor.bat` startup-exit issue was caused by the legacy console IO path reading old Tag G input indices. The C++ output path now uses a guarded Tag G mapping.
+
+## IOA4 Decode Threshold Calibration (2026-05-04)
+
+- Antilatency SDK `analogPin.getValue()` returns raw voltage (e.g. 0.54, 1.56), **not** normalized 0.0–1.0 as initially assumed.
+- `decodeAnalogABCLevel` thresholds updated from normalized values (÷3.3) to actual SDK readings.
+- Monitor display simplified: `IOA4 Voltage: 1.326 (4.37V)` → `IOA4: 1.326`.
 
 ## IOA3 Analog Decode Rule (2026-04-30)
 
