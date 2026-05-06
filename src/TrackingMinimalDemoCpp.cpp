@@ -1,5 +1,5 @@
 //MANPADS Antilatency Tracking System — C++ 主程式（多場景 + 多 Tracker + HW IO + JSON）
-//最後更新: 2026/05/04
+//最後更新: 2026/05/06
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -309,27 +309,34 @@ static void decodeIOA3(float v, bool& bcu, bool& hoan, bool& antenna) {
 // ============================================================
 #if defined(_WIN32)
 struct PipeIOCommand {
-    std::string field;  // "io7" or "io8"
+    std::string field;  // "io7", "io8", "ioa3"
     char tag;           // 'A', 'B', etc.
     bool state;         // true=ON, false=OFF
+    int level;          // for ioa3: 0=off, 1=medium vibe, 2=strong vibe
 };
 
 static std::vector<PipeIOCommand> g_pipeCommands;
 static std::mutex g_pipeMutex;
 static std::atomic<bool> g_pipeRunning{false};
 
-// Simple parser: extract {"io7":"A1"} or {"io8":"B0"} from a line
+// Simple parser: extract {"io7":"A1"}, {"io8":"B0"}, {"ioa3":"A2"} from a line
 static bool parsePipeCommand(const std::string& line, PipeIOCommand& cmd) {
-    // Find "io7" or "io8"
-    for (const char* field : {"io7", "io8"}) {
+    for (const char* field : {"io7", "io8", "ioa3"}) {
         std::string search = std::string("\"") + field + "\":\"";
         auto pos = line.find(search);
         if (pos == std::string::npos) continue;
         pos += search.size();
         if (pos + 1 >= line.size()) return false;
         cmd.field = field;
-        cmd.tag = line[pos];       // 'A', 'B', etc.
-        cmd.state = (line[pos + 1] == '1');
+        cmd.tag = line[pos];
+        if (std::string(field) == "ioa3") {
+            char lc = line[pos + 1];
+            cmd.level = (lc >= '0' && lc <= '2') ? (lc - '0') : 0;
+            cmd.state = cmd.level != 0;
+        } else {
+            cmd.state = (line[pos + 1] == '1');
+            cmd.level = 0;
+        }
         return true;
     }
     return false;
@@ -742,6 +749,12 @@ int main(int argc, char* argv[]) {
                             ? Antilatency::HardwareExtensionInterface::Interop::PinState::High
                             : Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         std::cerr << "[Pipe] IO8[" << cmd.tag << "]: " << (cmd.state ? "ON" : "OFF") << std::endl;
+                    } else if (cmd.field == "ioa3" && hw.hasPwmIOA3) {
+                        hw.ioa3Level = cmd.level;
+                        hw.ioa3State = cmd.level != 0;
+                        float duty = cmd.level == 1 ? 0.55f : cmd.level == 2 ? 1.0f : 0.0f;
+                        hw.pwmPinIOA3.setDuty(duty);
+                        std::cerr << "[Pipe] IOA3[" << cmd.tag << "]: level=" << cmd.level << std::endl;
                     }
                     break;
                 }
@@ -860,7 +873,7 @@ int main(int argc, char* argv[]) {
                             Antilatency::HardwareExtensionInterface::Interop::PinState::Low);
                         hw.io8State = false;
                         hw.hasIO8Output = true;
-                    } else if (hw.type == "G") {
+                    } else if (hw.type == "A" || hw.type == "G") {
                         // Digital inputs: IO1, IO2, IO5, IO6, IO8.
                         hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO1));
                         hw.inputPins.push_back(cotask.createInputPin(Antilatency::HardwareExtensionInterface::Interop::Pins::IO2));
@@ -969,11 +982,10 @@ int main(int argc, char* argv[]) {
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
                         oss << " IO[" << tag << "]:";
-                        if (hw.type == "G" && hw.hasAnalogIOA4) {
+                        if ((hw.type == "A" || hw.type == "G") && hw.hasAnalogIOA4) {
                             std::string ioBits = buildTagGIoBits(hw);
                             oss << ioBits
                                 << " A4:" << std::setprecision(3) << hw.ioa4Value
-                                << "(" << std::setprecision(2) << (hw.ioa4Value * 3.3f) << "V)"
                                 << std::setprecision(4);
                         } else {
                             int inputLoopCount = hw.hasIO6Output ? 5 : 6;
@@ -1044,7 +1056,7 @@ int main(int argc, char* argv[]) {
                     if (hwIt != hwByType.end()) {
                         auto& hw = *(hwIt->second);
                         using PS = Antilatency::HardwareExtensionInterface::Interop::PinState;
-                        if (hw.type == "G" && hw.hasAnalogIOA4) {
+                        if ((hw.type == "A" || hw.type == "G") && hw.hasAnalogIOA4) {
                             ioBits = buildTagGIoBits(hw);
                         } else if (hw.hasAnalogIO) {
                             // 10-bit path (Tag G/A)

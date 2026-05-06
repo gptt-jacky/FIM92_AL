@@ -1,5 +1,5 @@
 # MANPADS Data Server — High-speed stdin to WebSocket forwarder
-# 最後更新: 2026/03/12
+# 最後更新: 2026/05/06
 """
 For software team integration. No HTTP server, no web viewer.
 IO control via Named Pipe (MANPADS_IO).
@@ -204,11 +204,11 @@ async def ws_handler(websocket):
             try:
                 data = json.loads(message)
                 io7_cmd = data.get("io7", "")
-                if io7_cmd in ("A1", "A0", "B1", "B0"):
+                if io7_cmd in ("A1", "A0"):
                     send_io_command(f'{{"io7":"{io7_cmd}"}}')
-                io8_cmd = data.get("io8", "")
-                if io8_cmd in ("B1", "B0"):
-                    send_io_command(f'{{"io8":"{io8_cmd}"}}')
+                ioa3_cmd = data.get("ioa3", "")
+                if ioa3_cmd in ("A0", "A1", "A2"):
+                    send_io_command(f'{{"ioa3":"{ioa3_cmd}"}}')
             except Exception:
                 pass
     except Exception:

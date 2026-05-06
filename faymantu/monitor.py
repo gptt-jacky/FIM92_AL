@@ -4,7 +4,7 @@ MANPADS Console Monitor — 原地刷新顯示所有 Tracker + IO 狀態
 
 Usage: TrackingMinimalDemo.exe --json scenes.json | python monitor.py
 """
-# 最後更新: 2026/05/04
+# 最後更新: 2026/05/06
 import sys
 import os
 import json
@@ -33,13 +33,27 @@ TAG_INFO = {
     "G": ("G", "測試裝置"),
 }
 
-# 8-bit labels (Tags A/B/C/D/E/F)
+# 8-bit labels (Tags B/C/D/E/F)
 IO_LABELS_8 = ["IO1", "IO2", "IOA3", "IOA4", "IO5", "IO6", "IO7*", "IO8"]
-# Tag G diagnostic: IOA3 and IO7 are outputs, IOA4 is analog input.
+# Tag A: IOA3=震動器輸出, IOA4=天線/BCU/保險 analog decode
+IO_LABELS_A = ["IO1", "IO2", "IOA3*", "IOA4(A)", "IO5", "IO6", "IO7*", "IO8"]
+# Tag G diagnostic: IOA3=PWM output, IOA4=analog input
 IO_LABELS_G = ["IO1", "IO2", "IOA3*", "IOA4(A)", "IO5", "IO6", "IO7*", "IO8"]
-# 10-bit labels (Tag G/A with analog IOA3 + PWM IOA4)
+# 10-bit labels (legacy, unused)
 IO_LABELS_10 = ["IO1", "IO2", "BCU", "保險", "天線", "IO5", "IO6", "IO7*", "IO8*", "IOA4*"]
-IOA4_LEVELS = {
+# Tag A IOA4: 天線/BCU/保險 voltage ladder decode
+IOA4_LEVELS_A = {
+    "0": "無",
+    "1": "BCU",
+    "2": "保險",
+    "3": "天線",
+    "4": "BCU+保險",
+    "5": "BCU+天線",
+    "6": "保險+天線",
+    "7": "BCU+保險+天線",
+}
+# Tag G IOA4: generic A/B/C voltage ladder decode
+IOA4_LEVELS_G = {
     "0": "無",
     "1": "A",
     "2": "B",
@@ -51,35 +65,34 @@ IOA4_LEVELS = {
 }
 
 
-def format_io_detail(io_inputs, io7out):
-    """Format IO from the global io object (array of 0/1 + io7out bool)"""
-    bits = ""
-    for i, val in enumerate(io_inputs):
-        bits += str(val)
-    # Insert IO7 output between IO6 and IO8
-    bits = bits[:6] + ("1" if io7out else "0") + bits[6:]
-    return bits
 
-
-def format_io_bar(io_str, labels=None):
-    """Format IO bits as a visual bar with labels.
-    For 10-bit strings, IOA4* shows off/小震動/大震動 instead of H/L."""
+def format_io_bar(io_str, labels=None, tag=None):
+    """Format IO bits as a visual bar with labels. Tag A/G share IOA3*/IOA4(A) but use different text."""
     if labels is None:
         labels = IO_LABELS_8 if len(io_str) <= 8 else IO_LABELS_10
+    ioa4_levels = IOA4_LEVELS_A if tag == "A" else IOA4_LEVELS_G
     parts = []
     for i, ch in enumerate(io_str):
         if i >= len(labels):
             break
         label = labels[i]
         if label == "IOA3*":
-            if ch == "1":
-                parts.append(f"{GREEN}{label}=小PWM{RESET}")
-            elif ch == "2":
-                parts.append(f"{YELLOW}{label}=全輸出{RESET}")
+            if tag == "A":
+                if ch == "1":
+                    parts.append(f"{GREEN}{label}=中震動{RESET}")
+                elif ch == "2":
+                    parts.append(f"{YELLOW}{label}=強震動{RESET}")
+                else:
+                    parts.append(f"{DIM}{label}=OFF{RESET}")
             else:
-                parts.append(f"{DIM}{label}=OFF{RESET}")
+                if ch == "1":
+                    parts.append(f"{GREEN}{label}=小PWM{RESET}")
+                elif ch == "2":
+                    parts.append(f"{YELLOW}{label}=全輸出{RESET}")
+                else:
+                    parts.append(f"{DIM}{label}=OFF{RESET}")
         elif label == "IOA4(A)":
-            value = IOA4_LEVELS.get(ch, ch)
+            value = ioa4_levels.get(ch, ch)
             if ch == "0":
                 parts.append(f"{DIM}{label}=0/無{RESET}")
             else:
@@ -140,28 +153,20 @@ def render(data, frame_count, fps):
             lines.append(f"  {BOLD}{CYAN}[{tag}]{RESET} {device_name}  (T{tid}, type={ttype})  {s_color}S:{stability} {s_label}{RESET}")
             lines.append(f"      Pos: ({t.get('px', 0):+9.4f}, {t.get('py', 0):+9.4f}, {t.get('pz', 0):+9.4f})")
             lines.append(f"      Rot: ({t.get('rx', 0):+9.4f}, {t.get('ry', 0):+9.4f}, {t.get('rz', 0):+9.4f}, {t.get('rw', 0):+9.4f})")
-            labels = IO_LABELS_G if tag == "G" and len(io_bits) == 8 else None
-            lines.append(f"      IO:  {io_bits}   {format_io_bar(io_bits, labels)}")
+            if tag == "A" and len(io_bits) == 8:
+                labels = IO_LABELS_A
+            elif tag == "G" and len(io_bits) == 8:
+                labels = IO_LABELS_G
+            else:
+                labels = None
+            lines.append(f"      IO:  {io_bits}   {format_io_bar(io_bits, labels, tag=tag)}")
             analog_info = analog.get(tag, {})
             if "ioa4" in analog_info:
                 norm = analog_info.get("ioa4", 0.0)
                 lines.append(f"      IOA4: {YELLOW}{norm:.3f}{RESET}")
 
-    # ---- Global IO summary ----
     lines.append("")
     lines.append(f"  {BOLD}{'─' * 66}{RESET}")
-
-    if io_global.get("connected"):
-        io_type = io_global.get("type", "")
-        io_inputs = io_global.get("inputs", [])
-        io7out = io_global.get("io7out", False)
-        if io_inputs:
-            global_bits = format_io_detail(io_inputs, io7out)
-            lines.append(f"  Global IO [{io_type}]: {global_bits}   {format_io_bar(global_bits)}")
-        else:
-            lines.append(f"  Global IO [{io_type}]: connected (no data)")
-    else:
-        lines.append(f"  {DIM}Global IO: not connected{RESET}")
 
     if analog:
         for tag, values in analog.items():
@@ -173,7 +178,7 @@ def render(data, frame_count, fps):
     lines.append(f"  HW Ext Modules with signal: {hw_count}/{total}")
 
     lines.append("")
-    lines.append(f"  {DIM}Frame #{frame_count}  |  [A] 允許後座力  [B] 小震動(IO7)  [G] G-IOA3(off/小PWM/全輸出)  [H] G-IO7  [O] 全部IO7  [1-9] Scene  [Q] Quit{RESET}")
+    lines.append(f"  {DIM}Frame #{frame_count}  |  [A] IO7允許後座力  [G] IOA3震動(off/中/強)  [O] 全部IO7  [1-9] Scene  [Q] Quit{RESET}")
 
     return "\n".join(lines)
 

@@ -19,14 +19,14 @@ CLEAR_SCREEN = "\033[2J\033[H"
 HIDE_CURSOR = "\033[?25l"
 SHOW_CURSOR = "\033[?25h"
 
-io7_state = {"A": False, "B": False}
-io8_state = {"B": False}
+io7_state = {"A": False}
+ioa3_level = {"A": 0}  # 0=off, 1=中震動, 2=強震動
 ws_ref = None
 loop_ref = None
 
 
 def keyboard_reader():
-    """Read keyboard input: A/B toggle IO7, C toggle IO8 (Tag B)."""
+    """Read keyboard input: A toggle IO7-A, G cycle IOA3-A (off/中震動/強震動)."""
     while True:
         if msvcrt.kbhit():
             ch = msvcrt.getch()
@@ -34,15 +34,15 @@ def keyboard_reader():
                 key = ch.decode().upper()
             except Exception:
                 continue
-            if key in ("A", "B") and ws_ref and loop_ref:
-                io7_state[key] = not io7_state[key]
-                val = "1" if io7_state[key] else "0"
-                cmd = json.dumps({"io7": f"{key}{val}"})
+            if key == "A" and ws_ref and loop_ref:
+                io7_state["A"] = not io7_state["A"]
+                val = "1" if io7_state["A"] else "0"
+                cmd = json.dumps({"io7": f"A{val}"})
                 asyncio.run_coroutine_threadsafe(ws_ref.send(cmd), loop_ref)
-            elif key == "C" and ws_ref and loop_ref:
-                io8_state["B"] = not io8_state["B"]
-                val = "1" if io8_state["B"] else "0"
-                cmd = json.dumps({"io8": f"B{val}"})
+            elif key == "G" and ws_ref and loop_ref:
+                ioa3_level["A"] = (ioa3_level["A"] + 1) % 3
+                lvl = ioa3_level["A"]
+                cmd = json.dumps({"ioa3": f"A{lvl}"})
                 asyncio.run_coroutine_threadsafe(ws_ref.send(cmd), loop_ref)
         time.sleep(0.05)
 
@@ -82,8 +82,8 @@ async def main(url):
                 continue
 
             io7a = "ON" if io7_state["A"] else "OFF"
-            io7b = "ON" if io7_state["B"] else "OFF"
-            io8b = "ON" if io8_state["B"] else "OFF"
+            ioa3_labels = ["OFF", "中震動", "強震動"]
+            ioa3a = ioa3_labels[ioa3_level["A"]]
             header = f"  RX: {fps} msg/sec  |  Frame: #{frame_count}  |  Size: {len(message)} bytes"
             output = (
                 CLEAR_SCREEN
@@ -94,7 +94,7 @@ async def main(url):
                 + "-" * 70 + "\n\n"
                 + message + "\n\n"
                 + "-" * 70 + "\n"
-                + f"  [A] 允許後座力: {io7a}  [B] 小震動(IO7): {io7b}  [C] 大震動(IO8,需+IO7): {io8b}  |  Ctrl+C to quit\n"
+                + f"  [A] 允許後座力: {io7a}  [G] IOA3震動: {ioa3a}  |  Ctrl+C to quit\n"
             )
             sys.stdout.write(output)
             sys.stdout.flush()

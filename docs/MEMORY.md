@@ -2,15 +2,19 @@
 
 Last updated: 2026-04-30
 
-## Current Tag G Diagnostic State (2026-04-30)
+## Tag A / Tag G IO Mode (2026-05-06)
 
-- Tag G outputs: IOA3 PWM and IO7 digital.
-- Tag G IOA3 levels: 0=off, 1=small PWM at 55% duty, 2=full output at 100% duty.
-- Tag G analog input: IOA4, exposed in JSON as `analog.G.ioa4` and `analog.G.ioa4v`.
-- Tag G digital inputs: IO1, IO2, IO5, IO6, IO8.
-- Tag G `trackers[].io` diagnostic layout: `IO1, IO2, IOA3(0/1/2), IOA4(0-7), IO5, IO6, IO7(out), IO8`.
-- Tag G IOA4 uses one character for the A/B/C analog decode: `0=none, 1=A, 2=B, 3=A+B, 4=C, 5=A+C, 6=B+C, 7=A+B+C`.
-- `scripts/RunMonitor.bat` can exit immediately if any old code path reads Tag G as a seven-input module. The fix is to use the guarded Tag G IO mapping everywhere before JSON is emitted.
+Tag A（刺針）與 Tag G（測試）現在共用相同的 C++ HW setup 路徑，8-bit io 字串格式相同：
+`IO1, IO2, IOA3(0/1/2), IOA4(0-7), IO5, IO6, IO7(out), IO8`
+
+**Tag A IOA4 decode（天線/BCU/保險）**：`0=無, 1=BCU, 2=保險, 3=天線, 4=BCU+保險, 5=BCU+天線, 6=保險+天線, 7=BCU+保險+天線`
+**Tag G IOA4 decode（A/B/C 按鈕）**：`0=none, 1=A, 2=B, 3=A+B, 4=C, 5=A+C, 6=B+C, 7=A+B+C`
+值 3/4 對調是因為 Tag A 電阻網路設計不同（天線電壓低於 BCU+保險組合）。
+
+IOA3 levels（Tag A / G 共用）：0=off, 1=中震動 55% duty, 2=強震動 100% duty
+WebSocket 控制指令：`{"ioa3":"A0"}` / `{"ioa3":"A1"}` / `{"ioa3":"A2"}`
+
+Tag B（頭盔震動器）：停用，保留 code 空殼，io 固定 "00000000"。
 
 ## IOA3 Analog Decode Rule (2026-04-30)
 
@@ -66,8 +70,7 @@ Last updated: 2026-04-30
   - `faymantu/data_server.py`
   - `faymantu/monitor.py`
   - `faymantu/ws_client.py`
-  - `docs/COMM_SPEC.md`
-  - `docs/COMM_SPEC_V10.md`
+  - `docs/Websocket_刺針感測器通訊系統.md`
   - `faymantu/SOFTWARE_GUIDE.md`
 
 ## Hardware Constraints Already Confirmed
@@ -81,33 +84,13 @@ Last updated: 2026-04-30
 - Type 屬性必須在 AntilatencyService 正確設定，否則配對流程會失敗。
 - `Antilatency Support/` 保存提交給官方的 C++ SDK 4.5.0 support ticket，聚焦 Alt Tracking cotask + HW Extension cotask + 2 output pins 衝突問題；因後續實測 IO7+IO8 正常，暫不送出。
 
-## IOA3/IOA4 類比重設計（2026-04-30 硬體會議決策，尚未完整實作）
+## IOA3/IOA4 實作狀態（2026-05-06 已完成）
 
-**原始方向：IOA3 → analog input（電阻分壓梯，讀三顆按鈕）**
-
-- 三顆按鈕（BCU、保險、天線）各自並聯接地電阻，IOA3 讀組合電壓
-- SDK：`createAnalogPin(IOA3, refreshMs)`, `getValue()` 回傳 0.0–1.0（= 0–3.3V）
-- 8 種狀態（7 電壓段 + 0V），誤差容許 ±6%，取中點門檻解碼
-- IO 字串從 8-bit 擴展到 10-bit：BCU/保險/天線各佔一位
-
-**原始方向：IOA4 → PWM output（輸出至 Pico2W 控制震動馬達）**
-
-- duty=0%=off, duty=55%≈1.8V=小震動, duty=91%≈3.0V=大震動
-- SDK：`createPwmPin(IOA4, freqHz)`, `setDuty(float)`
-- **已知衝突**：`createPwmPin` 與 Alt Tracker 同裝置衝突 → 解決方案待定
-
-**10-bit IO 字串格式（Tag G/A）**：
-```
-位置  0   1   2    3    4    5   6    7     8     9
-腳位 IO1 IO2 BCU 保險 天線 IO5 IO6 IO7* IO8* IOA4*
-```
-IOA4* 儲存 `'0'`/`'1'`/`'2'`（非 H/L）
-
-**實作狀態**：
-- Struct 欄位、decodeIOA3()、10-bit path、monitor.py → 已完成但未套用到正式 Tag A
-- Tag G 最新測試配置（2026-04-30）：IOA3 + IO7 為 output；IOA4 為 analog input 並在 monitor 顯示即時電壓；IO1/IO2/IO5/IO6/IO8 為 input
-- 鍵盤：`[G]` 控制 Tag G IOA3 output，`[H]` 控制 Tag G IO7 output
-- IOA4 PWM 方案暫停，先改為 analog input 診斷是否與 Alt Tracker 共存
+- IOA3 → PWM output（震動器）：Tag A 和 Tag G 均採用。duty 0%=off, 55%=中震動, 100%=強震動
+- IOA4 → analog input（電阻分壓梯 decode）：Tag A 和 Tag G 均採用，但 decode 表不同（見上方）
+- 8-bit io 字串格式：Tag A/G 均為 `IO1, IO2, IOA3(0/1/2), IOA4(0-7), IO5, IO6, IO7*, IO8`
+- `analog.<tag>.ioa4` 欄位保留原始 SDK 電壓讀值（0–3.3V），不歸一化
+- `decodeAnalogABCLevel` 門檻值（floor threshold）：0.54/0.88/1.25/1.56/1.83/2.00/2.19V
 
 ## Operational Expectations
 

@@ -256,38 +256,20 @@ C++ 輸出的完整 JSON（RunWithPipe / RunTracking 模式）：
 
 Input 使用 **Active Low**：Low（接地）= 1（觸發），High（懸空）= 0（未觸發）。
 
-| 索引 | 腳位 | 方向 | 說明 |
-|------|------|------|------|
-| 0 | IO1 | Input | Low=1, High=0 |
-| 1 | IO2 | Input | Low=1, High=0 |
-| 2 | IOA3 | Input | Low=1, High=0 |
-| 3 | IOA4 | Input | Low=1, High=0 |
-| 4 | IO5 | Input | Low=1, High=0 |
-| 5 | IO6 | Input | Low=1, High=0 |
-| 6 | IO8 | Input | Low=1, High=0 |
-| - | IO7 | **Output** | `io7out` 欄位控制 |
+Tag A（刺針）IO 腳位定義（2026-05-06 起）：
 
-### IOA3 / IOA4 類比重設計診斷（2026-04-30）
+| 腳位 | 方向 | 說明 |
+|------|------|------|
+| IO1 | Input | IFF 開關 |
+| IO2 | Input | 鎖定鍵 |
+| IOA3 | **PWM Output** | 震動器：0=OFF, 1=中震動(55%), 2=強震動(100%) |
+| IOA4 | **Analog Input** | 天線/BCU/保險 decode：0=無,1=BCU,2=保險,3=天線,4=BCU+保險,5=BCU+天線,6=保險+天線,7=BCU+保險+天線 |
+| IO5 | Input | 瞄準模組 |
+| IO6 | Input | 板機 |
+| IO7 | **Output** | 軟體允許後座力訊號 |
+| IO8 | Input | 後座力準備就緒 |
 
-目前此設計只在 **Tag G 測試裝置** 上驗證，尚未套用到正式 Tag A。
-
-最新 Tag G 診斷配置：
-
-- Output：IOA3、IO7
-- Analog Input：IOA4，monitor 顯示 normalized value 與換算電壓
-- Digital Input：IO1、IO2、IO5、IO6、IO8
-- IOA3 / IO7 可透過鍵盤 `[G]` / `[H]` 切換
-- `trackers[].io` 目前維持 8-bit：`IO1, IO2, IOA3*, IOA4(A), IO5, IO6, IO7*, IO8`
-
-歷史診斷結果：
-
-| 診斷 | IOA3 | IOA4 | IO7/IO8 | Alt Tracker 結果 |
-|------|------|------|---------|------------------|
-| Diag 1 | `createAnalogPin` | `createPwmPin` | output | 啟動後立即 finish |
-| Diag 2 | `createInputPin` | `createInputPin` | output | 正常顯示 Tag G |
-| Diag 3 | `createOutputPin` | `createAnalogPin` | IO7 output / IO8 input | 本版待實機驗證 |
-
-本版已編譯通過，待實機確認 Tag G 的 Alt 是否穩定，以及 IOA4 電壓是否在 monitor 即時更新。
+Tag G（測試裝置）使用相同 HW setup 路徑，IOA4 decode 表不同（1=A,2=B,3=A+B,4=C,...）。
 
 ### WebSocket 反向控制
 
@@ -314,21 +296,20 @@ Web 端（或任何 WebSocket client）可以發送 JSON 訊息控制 C++ 程式
 |------|------|
 | `{"io7":"A1"}` | Tag A IO7 → High（開保險 — 允許觸發後座力） |
 | `{"io7":"A0"}` | Tag A IO7 → Low（關保險 — 禁止觸發後座力） |
-| `{"io7":"B1"}` | Tag B IO7 → High（小震動） |
-| `{"io7":"B0"}` | Tag B IO7 → Low |
 
-**IO8 per-device 控制（io8 協議，僅 Tag B）：**
+**IOA3 震動器控制（ioa3 協議，Tag A）：**
 
 ```json
-{"io8": "B1"}
+{"ioa3": "A1"}
 ```
 
 | 指令 | 說明 |
 |------|------|
-| `{"io8":"B1"}` | Tag B IO8 → High（大震動） |
-| `{"io8":"B0"}` | Tag B IO8 → Low |
+| `{"ioa3":"A0"}` | Tag A IOA3 → OFF（停止震動） |
+| `{"ioa3":"A1"}` | Tag A IOA3 → 中震動（55% duty） |
+| `{"ioa3":"A2"}` | Tag A IOA3 → 強震動（100% duty） |
 
-> IO7/IO8 採 set-to-state 語義（指定目標狀態），搭配回傳的 `io` 欄位確認實際狀態。
+> IO7 / ioa3 採 set-to-state 語義（指定目標狀態），搭配回傳的 `io` 欄位確認實際狀態。
 
 ---
 
@@ -440,8 +421,7 @@ FIM92_C++/
 │
 ├── docs/                         # 技術文件
 │   ├── CLAUDE.md                 # Claude 開發規範
-│   ├── COMM_SPEC.md              # 通訊規格書 V0.7
-│   ├── COMM_SPEC_V10.md          # 通訊規格書 V1.0
+│   ├── Websocket_刺針感測器通訊系統.md  # 通訊規格書 V1.1（軟體組）
 │   ├── architecture.mmd          # 系統架構圖 (Mermaid)
 │   ├── DEV_DISCUSSION.md         # 開發討論紀錄
 │   └── DEVLOG.md                 # 詳細開發紀錄
@@ -746,6 +726,6 @@ MIT License
 
 > - 詳細開發歷程、技術細節、效能分析請見 [DEVLOG.md](docs/DEVLOG.md)
 > - 軟體組資料介面使用指南請見 [SOFTWARE_GUIDE.md](faymantu/SOFTWARE_GUIDE.md)
-> - 通訊規格書請見 [COMM_SPEC V0.7](docs/COMM_SPEC.md) / [V1.0](docs/COMM_SPEC_V10.md)
+> - 通訊規格書請見 [Websocket_刺針感測器通訊系統.md](docs/Websocket_刺針感測器通訊系統.md)（V1.1）
 > - 開發討論紀錄請見 [DEV_DISCUSSION.md](docs/DEV_DISCUSSION.md)
 > - 費曼圖軟體組專用資料夾：[faymantu/](faymantu/)
